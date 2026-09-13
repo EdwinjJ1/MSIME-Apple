@@ -1400,7 +1400,13 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   private func updateLetterCaseControls() {
-    let usesUppercase = !isChineseMode && letterCaseState != .lowercase
+    // 拼音和罗马字的键面用大写,切到英文才回小写。Every Chinese keyboard draws its 26 keys in caps,
+    // and the case there is only a typeface: the key still feeds a lowercase letter to the engine.
+    // Shift belongs to English, where the case decides what actually lands in the document.
+    //
+    // 本地模式除外 —— 那里敲进去的就是字面的小写字母,键面写大写就是在骗人。
+    let shifted = !isChineseMode && letterCaseState != .lowercase
+    let usesUppercase = (isChineseMode && !session.isInLocalMode) || shifted
     for (button, lowercase, hintLabel) in letterButtons {
       // A hint only means something while the key feeds a double-pinyin composition, so English
       // mode drops it even though the scheme underneath is unchanged.
@@ -1415,8 +1421,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       }
       hintLabel.text = hint
       hintLabel.isHidden = hint == nil
+      // 读屏念「大写」只在真的会敲出大写字母时 —— 拼音键面的大写是外观,不是 shift。
       button.accessibilityLabel =
-        usesUppercase
+        shifted
         ? "大写 \(lowercase.uppercased())" : "字母 \(lowercase.uppercased())"
       button.accessibilityValue = hint
     }
