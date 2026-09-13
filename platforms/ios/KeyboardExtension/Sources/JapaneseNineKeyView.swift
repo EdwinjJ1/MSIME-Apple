@@ -57,6 +57,8 @@ final class JapaneseNineKeyView: UIStackView {
   private var rows: [UIStackView] = []
   private var keyButtons: [UIButton] = []
   private var variantsKey: UIButton?
+  private var scriptKeyOneRow: NSLayoutConstraint?
+  private var scriptKeyTwoRows: NSLayoutConstraint?
   private let preview = KanaFlickPreview()
 
   private var isComposing = false
@@ -89,12 +91,42 @@ final class JapaneseNineKeyView: UIStackView {
     // redistribute instead of leaving a hole.
     if !modeKeys.isEmpty {
       let modes = UIStackView()
-      modes.axis = .vertical; modes.distribution = .fillEqually; modes.spacing = 7
+      modes.axis = .vertical; modes.distribution = .fill; modes.spacing = 7
       rows.append(modes)
       addArrangedSubview(modes)
       modes.widthAnchor.constraint(equalTo: widthAnchor, multiplier: 0.17).isActive = true
       modes.accessibilityIdentifier = "japaneseModeColumn"
       for key in modeKeys { modes.addArrangedSubview(key) }
+
+      // 左列要正好铺满网格的四行。ABC 在实机上跨两格,所以三个键就填满了一列 —— 这也是为什么这一列
+      // 从来不需要占位格。Sharing the height equally instead made each of three keys 4/3 of a row and
+      // lined them up with nothing.
+      //
+      // 高度只引用本列自己,不引用假名行。Pinning a key to a row in the sibling grid looks equivalent
+      // and is not: that constraint spans two stacks, and the engine settles it by handing every row
+      // the whole panel height instead.
+      //
+      //   一格 = (H - 3×7) / 4          两格 = 2×(H - 3×7)/4 + 7
+      // 优先级压到 999:UIStackView 用必需优先级把隐藏的 arranged subview 压成零高,地球键不出现时
+      // 两条必需约束会当场打架。
+      let pin = { (key: UIButton, span: CGFloat) -> NSLayoutConstraint in
+        let constraint = key.heightAnchor.constraint(
+          equalTo: modes.heightAnchor, multiplier: span / 4,
+          constant: span == 2 ? -3.5 : -5.25)
+        constraint.priority = .required - 1
+        return constraint
+      }
+      let row = { (span: CGFloat) -> NSLayoutConstraint? in
+        guard modeKeys.indices.contains(2) else { return nil }
+        return pin(modeKeys[2], span)
+      }
+      for (index, key) in modeKeys.enumerated() where index != 2 {
+        pin(key, 1).isActive = true
+      }
+      scriptKeyOneRow = row(1)
+      scriptKeyTwoRows = row(2)
+      // 地球键不出现时(系统在键盘下面自己画),ABC 跨两格补满;出现时四个键各占一格。
+      scriptKeyTwoRows?.isActive = true
     }
 
     let grid = UIStackView()
@@ -208,6 +240,12 @@ final class JapaneseNineKeyView: UIStackView {
   /// post-modifier has nothing to modify once the keys stop producing kana.
   private static let brackets = ["（", "）", "「", "」", "『", "』", "【", "】"]
 
+  /// 左列满员(地球键也在)时每个键各占一格,否则 ABC 跨两格补满 —— 由控制器按地球键是否出现来告知。
+  func setModeColumnFull(_ full: Bool) {
+    scriptKeyTwoRows?.isActive = !full
+    scriptKeyOneRow?.isActive = full
+  }
+
   /// 切到数字层。九键还是九键,只是键面换成数字和符号。
   func setDigits(_ on: Bool) {
     guard on != showsDigits else { return }
@@ -289,8 +327,6 @@ private final class KanaFlickPreview: UIView {
   private static let gap: CGFloat = 6
 
   private let chips: [KanaFlickChip] = (0..<5).map { _ in KanaFlickChip() }
-  /// One per direction (left, up, right, down) — the centre needs none.
-  private let arrows: [CAShapeLayer] = (0..<4).map { _ in CAShapeLayer() }
   private var cell = CGSize(width: 44, height: 44)
 
   init() {
@@ -298,7 +334,6 @@ private final class KanaFlickPreview: UIView {
     isUserInteractionEnabled = false
     isHidden = true
     backgroundColor = .clear
-    for arrow in arrows { layer.addSublayer(arrow) }
     for chip in chips { addSubview(chip) }
   }
 
@@ -316,28 +351,6 @@ private final class KanaFlickPreview: UIView {
         width: cell.width,
         height: cell.height)
     }
-    for (index, arrow) in arrows.enumerated() {
-      arrow.frame = bounds
-      arrow.path = Self.arrowPath(from: middle, towards: Self.offsets[index + 1], cell: cell)
-    }
-  }
-
-  /// A small triangle sitting in the gap between the centre tile and one direction, pointing outwards.
-  private static func arrowPath(from middle: CGPoint, towards direction: CGPoint, cell: CGSize)
-    -> CGPath
-  {
-    let reach = CGPoint(
-      x: direction.x * (cell.width / 2 + gap / 2), y: direction.y * (cell.height / 2 + gap / 2))
-    let anchor = CGPoint(x: middle.x + reach.x, y: middle.y + reach.y)
-    let tip = CGPoint(x: anchor.x + direction.x * 4, y: anchor.y + direction.y * 4)
-    let base = CGPoint(x: anchor.x - direction.x * 4, y: anchor.y - direction.y * 4)
-    let across = CGPoint(x: direction.y * 5, y: direction.x * 5)
-    let path = CGMutablePath()
-    path.move(to: tip)
-    path.addLine(to: CGPoint(x: base.x + across.x, y: base.y + across.y))
-    path.addLine(to: CGPoint(x: base.x - across.x, y: base.y - across.y))
-    path.closeSubpath()
-    return path
   }
 
   func show(_ kana: [String], highlighting direction: Int, over key: UIView, in host: UIView) {
@@ -350,16 +363,6 @@ private final class KanaFlickPreview: UIView {
       chip.label.textColor = chosen ? skin.actionForeground : skin.keyForeground
       chip.backgroundColor = chosen ? skin.accent : skin.keyBackground
     }
-    for (index, arrow) in arrows.enumerated() {
-      let target = index + 1
-      let reachable = target < kana.count && !kana[target].isEmpty
-      arrow.isHidden = !reachable
-      // 箭头是恒定的可用性提示,不跟随选择。Tinting them by the current direction made three of the
-      // four nearly invisible, which is backwards: the arrows exist to say where the finger *can*
-      // go, and the filled tile already says where it is.
-      arrow.fillColor = UIColor.systemRed.cgColor
-    }
-
     // The cross is centred on the key itself, so the direction the finger moves is the direction the
     // highlight moves. That mapping is the whole point, and it only holds if the two share a centre.
     // It also means the upward tile overflows the keyboard, hence the top-most ancestor rather than

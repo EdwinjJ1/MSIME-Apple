@@ -104,14 +104,13 @@ final class JapaneseNineKeyTests: XCTestCase {
       }
     }
   }
-  func testModeColumnKeysShareTheHeightEvenly() throws {
-    // 切日英一天按不了几次,却拿到整列最大的靶子。The column used to give its last key two rows, so
-    // the script toggle was twice the size of every kana key next to it.
-    let makeMode = { (title: String) -> UIButton in
+  func testModeColumnGivesTheScriptKeyTwoRowsOfThree() throws {
+    // 左列铺满网格的四行:123 一格、^_^ 一格、英 两格 —— 实机就是这个比例,三个键平分整列会让每个变成
+    // 4/3 行高,和右列、和假名网格全对不上。
+    let modes = ["123", "^_^", "英"].map { (title: String) -> UIButton in
       var config = UIButton.Configuration.plain(); config.title = title
       return UIButton(configuration: config)
     }
-    let modes = ["123", "^_^", "英", "地球"].map(makeMode)
     let panel = JapaneseNineKeyView(makeKey: { title, _, action in
       var config = UIButton.Configuration.plain(); config.title = title
       return UIButton(configuration: config, primaryAction: UIAction { _ in action() })
@@ -121,10 +120,17 @@ final class JapaneseNineKeyTests: XCTestCase {
     }, modeKeys: modes)
     panel.frame = CGRect(x: 0, y: 0, width: 414, height: 235)
     panel.applyLayout(); panel.layoutIfNeeded()
-    let heights = modes.map { $0.bounds.height }
-    guard let tallest = heights.max(), let shortest = heights.min() else { return XCTFail("没有模式键") }
-    XCTAssertEqual(tallest, shortest, accuracy: 1, "模式键高度应当均分,没有哪个键该比别的大一截")
-    XCTAssertGreaterThan(shortest, 0)
+
+    let single = modes[0].bounds.height
+    XCTAssertGreaterThan(single, 40, "模式键太矮")
+    XCTAssertEqual(modes[1].bounds.height, single, accuracy: 1, "^_^ 应当和 123 一样高")
+    // 两格 = 两行加它们之间的那道缝。
+    XCTAssertEqual(modes[2].bounds.height, single * 2 + 7, accuracy: 1.5, "英 应当跨两格")
+
+    // 三个键连同缝隙正好填满整列,没有多余空当。
+    let column = try XCTUnwrap(nodes(panel).first { $0.accessibilityIdentifier == "japaneseModeColumn" })
+    let used = modes.map { $0.bounds.height }.reduce(0, +) + 7 * 2
+    XCTAssertEqual(used, column.bounds.height, accuracy: 1.5, "左列应当被填满")
   }
 
   func testDigitLayerKeepsTheSameThreeColumnGrid() throws {

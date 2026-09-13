@@ -1977,7 +1977,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     // Hiding the row itself rather than its keys one by one: the per-key pass had no counterpart on
     // the way back, so 空白 and 改行 stayed hidden once the user returned to Chinese.
     actionRow?.isHidden = kana
+    // 系统在键盘下面自己画地球时 needsInputModeSwitchKey 就是 false,这一格该空着而不是塞个死键。
     japaneseGlobeButton?.isHidden = !needsInputModeSwitchKey
+    japaneseKeys?.setModeColumnFull(needsInputModeSwitchKey)
     japaneseHeight?.constant = KeyboardLayoutPreference.rowSpacing * 2
     // 面板自带底排之后,剩下的高度整块归它 —— 再把高度绑在已经隐藏的动作行上,算出来是 0。
     japaneseHeight?.isActive = false
