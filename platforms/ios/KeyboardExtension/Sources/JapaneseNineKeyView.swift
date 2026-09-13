@@ -353,8 +353,10 @@ private final class KanaFlickPreview: UIView {
       let target = index + 1
       let reachable = target < kana.count && !kana[target].isEmpty
       arrow.isHidden = !reachable
-      arrow.fillColor =
-        (target == direction ? skin.accent : skin.keyForeground.withAlphaComponent(0.35)).cgColor
+      // 箭头是恒定的可用性提示,不跟随选择。Tinting them by the current direction made three of the
+      // four nearly invisible, which is backwards: the arrows exist to say where the finger *can*
+      // go, and the filled tile already says where it is.
+      arrow.fillColor = UIColor.systemRed.cgColor
     }
 
     // The cross is centred on the key itself, so the direction the finger moves is the direction the
@@ -389,6 +391,25 @@ private final class KanaFlickGesture: UIPanGestureRecognizer {
     maximumNumberOfTouches = 1
     cancelsTouchesInView = true
   }
+  override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
+    super.touchesBegan(touches, with: event)
+    // 手指一落下就摊开四个方向。A pan recognizer stays silent until the touch has travelled about
+    // 10pt, so a guide driven off its first callback only appears once the user has already
+    // committed to a direction blind. The whole point is to be readable before the move, not after.
+    feedback(0, .moving)
+  }
+
+  override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent) {
+    super.touchesEnded(touches, with: event)
+    // 没滑动的纯点击不会走到 .ended,导览得自己收。The button's own action commits the centre kana.
+    if state == .possible || state == .failed { feedback(0, .cancelled) }
+  }
+
+  override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent) {
+    super.touchesCancelled(touches, with: event)
+    if state == .possible || state == .failed { feedback(0, .cancelled) }
+  }
+
   @objc private func update() {
     let offset = translation(in: view)
     let direction: Int
