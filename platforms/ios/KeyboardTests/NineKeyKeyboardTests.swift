@@ -202,6 +202,8 @@ final class NineKeyKeyboardTests: XCTestCase {
         XCTAssertFalse(try XCTUnwrap(q.superview).isHidden)
         XCTAssertEqual(q.bounds.height, try button("returnKey", in: controller).bounds.height, accuracy: 0.5)
         XCTAssertGreaterThanOrEqual(q.bounds.height, 44)
+        // 拉丁输入框强制英文键盘,所以这里是小写 —— 中文下的大写键面由
+        // testLetterFacesAreUppercaseUntilEnglishTakesOver 覆盖。
         if type != .asciiCapable { XCTAssertEqual(q.configuration?.title, "q") }
         XCTAssertEqual(try button("quickPunctuationKey", in: controller).configuration?.title, ",")
         q.sendActions(for: .primaryActionTriggered)
@@ -1080,6 +1082,37 @@ final class NineKeyKeyboardTests: XCTestCase {
     try XCTUnwrap(descendants(controller.view).first {
       $0.accessibilityIdentifier == identifier
     } as? UIButton)
+  }
+
+  func testLetterFacesAreUppercaseUntilEnglishTakesOver() throws {
+    // 中文和日语罗马字的键面用大写,英文回小写由 shift 决定。键面的大小写只是外观:拼音键敲出去的
+    // 一直是小写字母,所以读屏在那里念「字母」而不是「大写」。
+    let previous = InputSchemePreference.scheme
+    defer { InputSchemePreference.scheme = previous }
+    for scheme in [ChineseInputScheme.quanpin, .japanese] {
+      InputSchemePreference.scheme = scheme
+      let controller = KeyboardViewController()
+      controller.loadViewIfNeeded()
+      controller.view.frame = CGRect(x: 0, y: 0, width: 414, height: 260 + KeyboardViewController.compositionRowHeight)
+      controller.view.layoutIfNeeded()
+
+      let a = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityLabel == "字母 A" } as? UIButton)
+      XCTAssertEqual(a.configuration?.title, "A", "\(scheme) 的键面应当是大写")
+      XCTAssertEqual(a.accessibilityLabel, "字母 A", "拼音键面的大写不是 shift,不该念成「大写」")
+
+      // 敲下去交给引擎的仍然是小写。
+      a.sendActions(for: .primaryActionTriggered)
+      XCTAssertNotNil(descendants(controller.view).first { $0.accessibilityIdentifier == "candidate-1" })
+
+      try button("bottomLanguageKey", in: controller).sendActions(for: .primaryActionTriggered)
+      controller.view.layoutIfNeeded()
+      XCTAssertEqual(a.configuration?.title, "a", "英文下应当回到小写")
+
+      try button("shiftButton", in: controller).sendActions(for: .primaryActionTriggered)
+      controller.view.layoutIfNeeded()
+      XCTAssertEqual(a.configuration?.title, "A", "英文按下 shift 才大写")
+      XCTAssertEqual(a.accessibilityLabel, "大写 A", "这次真的会敲出大写")
+    }
   }
 
   func testShortcutsYieldToCandidatesWithoutMovingKeys() throws {

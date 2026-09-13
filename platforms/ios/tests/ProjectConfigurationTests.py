@@ -833,7 +833,12 @@ sys.exit(int(os.environ["UPLOAD_STATUS"]))
         shift_handler = controller.split("private func toggleLetterCase", 1)[1].split("\n  }", 1)[0]
         self.assertIn("if isChineseMode {", shift_handler)
         self.assertIn("toggleInputMode()", shift_handler)
-        self.assertIn("let usesUppercase = !isChineseMode && letterCaseState != .lowercase", controller)
+        # 键面的大小写和送进引擎的字母是两回事:中文下键面画大写,敲出去的仍然是小写。所以这里断言的是
+        # "只有英文按下 shift 才算 shifted",而不是某一行具体怎么写 —— 之前钉的是后者,给拼音键面
+        # 改大写就红了,而契约一点没破。
+        case_handler = controller.split("private func updateLetterCaseControls", 1)[1].split("\n  }", 1)[0]
+        self.assertIn("let shifted = !isChineseMode && letterCaseState != .lowercase", case_handler)
+        self.assertIn("session.isInLocalMode", case_handler)
         character_handler = controller.split("private func handleCharacter", 1)[1].split("\n  }", 1)[0]
         self.assertIn("render(session.handleCharacter(character))", character_handler)
         self.assertNotIn("uppercased()", character_handler.split("} else {", 1)[0])
