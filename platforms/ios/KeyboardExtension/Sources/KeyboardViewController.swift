@@ -784,11 +784,16 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       icon.centerXAnchor.constraint(equalTo: brand.centerXAnchor),
       icon.centerYAnchor.constraint(equalTo: brand.centerYAnchor),
     ])
-    for button in [schemeButton, scriptShortcut, emojiShortcut, skinShortcut, layoutShortcut, dismissShortcut] {
-      shortcutBar.addArrangedSubview(button)
-      if button !== schemeButton {
-        button.widthAnchor.constraint(equalTo: schemeButton.widthAnchor).isActive = true
-      }
+    // 键盘设置在最左,输入方案挪到收起键旁边。Switching scheme is a deliberate, occasional act and the
+    // settings entry is the one reached most often, so the frequent one takes the end of the bar that
+    // the thumb rests nearest and the deliberate one moves away from an accidental brush.
+    let shortcuts = [layoutShortcut, scriptShortcut, emojiShortcut, skinShortcut, schemeButton, dismissShortcut]
+    for button in shortcuts { shortcutBar.addArrangedSubview(button) }
+    // 宽度等到所有按钮都进了层级再接。Activating inside the loop quietly required schemeButton to come
+    // first: every other key measures against it, and anything placed ahead of it was constraining a
+    // view that was not in the hierarchy yet, which throws rather than warns.
+    for button in shortcuts where button !== schemeButton {
+      button.widthAnchor.constraint(equalTo: schemeButton.widthAnchor).isActive = true
     }
     container.addSubview(shortcutBar)
     NSLayoutConstraint.activate([
