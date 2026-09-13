@@ -104,5 +104,31 @@ final class JapaneseNineKeyTests: XCTestCase {
       }
     }
   }
+  func testExpandedCandidatesStayOnOneLineAndInsideTheirRow() throws {
+    // 全屏候选面板排版乱且候选在 chip 内换行。The chip never set a line break mode, so a long
+    // candidate wrapped -- and a wrapping title measures at its narrowest under a compressed fit,
+    // so every chip was measured far thinner than it draws and each row was handed more than fit.
+    let candidates = ["日本", "二本", "にほん", "ニホン", "日本語教育振興協会", "あ",
+                      "とてもながいこうほごがここにはいります", "本", "ほん", "ホン", "翻", "反"]
+    for width in [320.0, 414.0] {
+      let panel = KeyboardCandidatePanelView(
+        candidates: candidates, preedit: "にほん", display: { $0 }, onSelect: { _ in }, onClose: {})
+      panel.frame = CGRect(x: 0, y: 0, width: width, height: 260)
+      panel.layoutIfNeeded()
+      let chips = nodes(panel).compactMap { $0 as? UIButton }
+        .filter { ($0.accessibilityIdentifier ?? "").hasPrefix("panelCandidate-") }
+      XCTAssertEqual(chips.count, candidates.count, "候选没有全部铺出来")
+      guard let tallest = chips.map({ $0.bounds.height }).max(),
+            let shortest = chips.map({ $0.bounds.height }).min() else { return XCTFail("没有候选") }
+      // 一行的 chip 高度应当一致;有谁换行了,它就会比别人高出一整行。
+      XCTAssertEqual(tallest, shortest, accuracy: 1, "有候选在 chip 内换行了")
+      for chip in chips {
+        let frame = chip.convert(chip.bounds, to: panel)
+        XCTAssertLessThanOrEqual(frame.maxX, width + 0.5, "候选溢出了面板宽度")
+        XCTAssertGreaterThanOrEqual(frame.minX, -0.5)
+      }
+    }
+  }
+
   private func nodes(_ view: UIView) -> [UIView] { [view] + view.subviews.flatMap { nodes($0) } }
 }

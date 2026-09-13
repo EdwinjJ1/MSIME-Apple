@@ -115,6 +115,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   /// state between "typed kana" and "a kanji the engine picked": pressing space twice put a literal
   /// space after a word the user never chose.
   private var japaneseConversionIndex: Int?
+  /// 假名键盘自己的侧栏按键。They live in the kana panel's own columns because Apple's kana keyboard
+  /// puts ⌫ / 空白 / 改行 down the right and the mode keys down the left, and the shared bottom row
+  /// steps aside while that panel is up.
+  private var japaneseSpaceButton: UIButton?
+  private var japaneseReturnButton: UIButton?
+  private var japaneseLanguageButton: UIButton?
   private var candidateRevision: UInt64 = 0
   private var visibleCandidates: [String] = []
   // The code each visible candidate was found by, parallel to visibleCandidates.
@@ -333,9 +339,27 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       root.addArrangedSubview(rowView)
     }
     root.addArrangedSubview(makeNineKeyLayout())
+    let japaneseSpace = makeKey(title: "空白", accessibilityLabel: "空白") { [weak self] in self?.handleSpace() }
+    let japaneseReturn = makeKey(title: "改行", accessibilityLabel: "改行", emphasized: true) { [weak self] in self?.handleReturn() }
+    let japaneseSymbols = makeKey(title: "123", accessibilityLabel: "切换到数字和符号") { [weak self] in self?.toggleLayout() }
+    let japaneseLanguage = makeKey(title: "英", accessibilityLabel: "切换中英文") { [weak self] in self?.toggleInputMode() }
+    // 地球键不进侧列 —— 实机上它在独立的底条上,侧列只放三个键。
+    let japaneseEmoji = makeKey(title: "^_^", accessibilityLabel: "顔文字と絵文字") { [weak self] in
+      self?.showEmojiPicker()
+    }
+    japaneseSpace.accessibilityIdentifier = "japaneseSpace"
+    japaneseReturn.accessibilityIdentifier = "japaneseReturn"
+    japaneseSymbols.accessibilityIdentifier = "japaneseSymbols"
+    japaneseLanguage.accessibilityIdentifier = "japaneseLanguage"
+    japaneseEmoji.accessibilityIdentifier = "japaneseEmoji"
+    japaneseSpaceButton = japaneseSpace
+    japaneseReturnButton = japaneseReturn
+    japaneseLanguageButton = japaneseLanguage
     japaneseKeys = JapaneseNineKeyView(makeKey: { [unowned self] title, label, action in
       makeKey(title: title, accessibilityLabel: label, action: action)
-    }, makeDelete: { [unowned self] in makeDeleteKey() })
+    }, makeDelete: { [unowned self] in makeDeleteKey() },
+       sideKeys: [japaneseSpace, japaneseReturn],
+       modeKeys: [japaneseSymbols, japaneseEmoji, japaneseLanguage])
     japaneseKeys.onInput = { [weak self] input in
       guard let self, isChineseMode, inputScheme.isJapanese else { return }
       playInputClick()
@@ -1422,11 +1446,17 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private func updateSpaceKeyTitle() {
     // 日语下空格键写「空白」,这是日语键盘上它的名字;组字中写「変換」。
     let title = inputScheme.isJapanese ? (hasComposition ? "変換" : "空白") : "空格"
+    if var configuration = japaneseSpaceButton?.configuration, configuration.title != title {
+      configuration.title = title
+      japaneseSpaceButton?.configuration = configuration
+      japaneseSpaceButton?.accessibilityLabel = title
+    }
     if var configuration = spaceButton?.configuration, configuration.title != title {
       configuration.title = title
       spaceButton?.configuration = configuration
       spaceButton?.accessibilityLabel = title
     }
+    japaneseKeys?.setComposing(hasComposition)
   }
 
   private func updateReturnKey() {
@@ -1459,6 +1489,14 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     // 日语组字中,回车是確定而不是宿主那个动作。The key read 发送 while a composition was open and
     // pressing it did not send, so it described something the keyboard was not about to do.
     let shown = inputScheme.isJapanese && hasComposition ? "確定" : title
+    if var configuration = japaneseReturnButton?.configuration {
+      let japaneseTitle = hasComposition ? "確定" : "改行"
+      if configuration.title != japaneseTitle {
+        configuration.title = japaneseTitle
+        japaneseReturnButton?.configuration = configuration
+        japaneseReturnButton?.accessibilityLabel = japaneseTitle
+      }
+    }
     if var configuration = enterButton?.configuration {
       configuration.title = shown
       enterButton?.configuration = configuration
@@ -1914,8 +1952,17 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     microsoftFinalKey?.isHidden = !(isChineseMode && inputScheme == .microsoft && !session.isInLocalMode)
     let kana = isChineseMode && inputScheme == .japaneseNineKey && !session.isInLocalMode
     japaneseKeys?.isHidden = !kana || showsSymbols
+    // 假名面板自己带了 ⌫ / 空白 / 改行 和模式键;底排只留地球键,这正是实机上它待的地方。
+    let kanaOwnsTheKeys = kana && !showsSymbols
+    for child in actionRow?.arrangedSubviews ?? [] where child !== actionGlobeButton {
+      if kanaOwnsTheKeys { child.isHidden = true }
+    }
+    actionRow?.isHidden = false
     japaneseHeight?.constant = KeyboardLayoutPreference.rowSpacing * 2
-    japaneseHeight?.isActive = kana && !showsSymbols
+    // 面板自带底排之后,剩下的高度整块归它 —— 再把高度绑在已经隐藏的动作行上,算出来是 0。
+    japaneseHeight?.isActive = false
+    japaneseKeys?.setContentHuggingPriority(.defaultLow - 1, for: .vertical)
+    japaneseKeys?.setContentCompressionResistancePriority(.defaultHigh, for: .vertical)
     japaneseKeys?.applyLayout()
     let nineKey = isChineseMode && inputScheme == .nineKey && !session.isInLocalMode
     let writes = isChineseMode && inputScheme == .handwriting && !showsSymbols && !session.isInLocalMode

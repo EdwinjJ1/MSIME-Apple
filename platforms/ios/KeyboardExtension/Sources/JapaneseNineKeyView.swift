@@ -36,15 +36,44 @@ final class JapaneseNineKeyView: UIStackView {
   var onVariant: (() -> Void)?
   private var rows: [UIStackView] = []
   private var keyButtons: [UIButton] = []
+  private var variantsKey: UIButton?
   private let preview = KanaFlickPreview()
 
-  /// makeDelete 单独传进来,因为假名键盘的删除键必须和别处一样支持长按连删 —— 它是全键盘
-  /// 唯一用普通按键做删除的地方,而按一次只退一个罗马字母,删一句话要几十次点击。
-  init(makeKey: (String, String, @escaping () -> Void) -> UIButton, makeDelete: () -> UIButton) {
+  /// 有假名可改时才点得动 小゛゜ —— 由控制器在每次 render 时告知。
+  func setComposing(_ composing: Bool) {
+    variantsKey?.isEnabled = composing
+  }
+
+  /// 侧栏按钮由控制器提供 —— 它们要接系统的地球键行为、长按连删和宿主的回车动作,
+  /// 这个视图只负责把它们摆到苹果假名键盘的位置上。
+  ///
+  /// Apple's kana keyboard is five columns: mode keys down the left, the kana grid in the middle,
+  /// and ⌫ / 空白 / 改行 down the right. This used to be the grid plus one delete key stretched
+  /// down the full height, with everything else in the shared bottom row.
+  init(makeKey: (String, String, @escaping () -> Void) -> UIButton,
+       makeDelete: () -> UIButton,
+       sideKeys: [UIButton] = [],
+       modeKeys: [UIButton] = []) {
     super.init(frame: .zero)
     axis = .horizontal
     spacing = 6
     accessibilityIdentifier = "japaneseNineKey"
+
+    // 左列:三个键,最后一个跨两行 —— 和 iOS 实机的かなキーボード一致(→ / ↺ / ABC)。
+    // Measured against the real thing rather than remembered: the column holds three keys, not one
+    // per row, and its bottom key is two rows tall the same way 改行 is on the right.
+    var modeColumn: UIStackView?
+    if !modeKeys.isEmpty {
+      let modes = UIStackView()
+      modes.axis = .vertical; modes.distribution = .fill; modes.spacing = 7
+      rows.append(modes)
+      addArrangedSubview(modes)
+      modes.widthAnchor.constraint(equalTo: widthAnchor, multiplier: 0.17).isActive = true
+      modes.accessibilityIdentifier = "japaneseModeColumn"
+      for key in modeKeys { modes.addArrangedSubview(key) }
+      modeColumn = modes
+    }
+
     let grid = UIStackView()
     grid.axis = .vertical; grid.distribution = .fillEqually; grid.spacing = 7
     addArrangedSubview(grid)
@@ -56,11 +85,6 @@ final class JapaneseNineKeyView: UIStackView {
         row.addArrangedSubview(makeKanaKey(index, factory: makeKey))
       }
     }
-    let side = UIStackView()
-    side.axis = .vertical; side.distribution = .fillEqually; side.spacing = 7
-    rows.append(side)
-    addArrangedSubview(side)
-    side.widthAnchor.constraint(equalTo: widthAnchor, multiplier: 0.19).isActive = true
     // 后置修饰键,不是选择器。Every Japanese keyboard modifies the kana just typed: か→が→か,
     // は→ば→ぱ→は, つ→っ→づ→つ. This was a three-level menu of 36 fresh kana, so か followed by
     // picking が produced かが, and one dakuten cost three taps and a visual search through a menu
@@ -71,17 +95,52 @@ final class JapaneseNineKeyView: UIStackView {
     variants.configuration?.contentInsets = .zero
     variants.titleLabel?.adjustsFontSizeToFitWidth = true
     variants.titleLabel?.minimumScaleFactor = 0.6
-    // 第四行:小゛゜ / わ / 、。 —— 每块日语键盘十几年不变的位置。わ used to sit alone in the right
-    // column and the bottom row did not exist, so the key a Japanese typist reaches for by muscle
-    // memory was somewhere else entirely.
+    // 后置修饰键在没有假名可改时无事可做。Dimmed rather than hidden or swapped for something else:
+    // it says "type first" without the grid reshuffling under the thumb between keystrokes.
+    variants.isEnabled = false
+    variantsKey = variants
+    // 第四行:小゛゜ / わ / 、。 —— 每块日语键盘十几年不变的位置。
     let fourth = UIStackView(); fourth.distribution = .fillEqually; fourth.spacing = 6
     rows.append(fourth); grid.addArrangedSubview(fourth)
     fourth.addArrangedSubview(variants)
     fourth.addArrangedSubview(makeKanaKey(9, factory: makeKey))
     fourth.addArrangedSubview(makeKanaKey(10, factory: makeKey))
+
+    // 右列:⌫ / 空白 / 改行。A single delete stretched down four rows was the shape this had after
+    // the grid grew its fourth row, and it is not what any Japanese keyboard looks like.
+    // 右列:⌫ 一行、空白 一行、改行 跨两行 —— 苹果的比例。Sharing the height equally left 改行 the
+    // same size as ⌫ and every one of them straddling the gap between two kana rows.
+    let side = UIStackView()
+    side.axis = .vertical; side.distribution = .fill; side.spacing = 7
+    rows.append(side)
+    addArrangedSubview(side)
+    side.widthAnchor.constraint(equalTo: widthAnchor, multiplier: 0.19).isActive = true
+    side.accessibilityIdentifier = "japaneseSideColumn"
     let delete = makeDelete()
     delete.accessibilityIdentifier = "japaneseDelete"
     side.addArrangedSubview(delete)
+    for key in sideKeys { side.addArrangedSubview(key) }
+    // 每个侧键都按"几行高"钉住,单位就是假名行本身。
+    if let firstKanaRow = grid.arrangedSubviews.first, let modes = modeColumn {
+      for (index, key) in modeKeys.enumerated() {
+        let tall: CGFloat = index == modeKeys.count - 1 ? 2 : 1
+        key.heightAnchor.constraint(
+          equalTo: firstKanaRow.heightAnchor, multiplier: tall,
+          constant: tall > 1 ? 7 : 0).isActive = true
+      }
+      _ = modes
+    }
+    if let firstKanaRow = grid.arrangedSubviews.first {
+      var spans: [(UIView, CGFloat)] = [(delete, 1)]
+      for (index, key) in sideKeys.enumerated() {
+        spans.append((key, index == sideKeys.count - 1 ? 2 : 1))
+      }
+      for (key, rowsTall) in spans {
+        key.heightAnchor.constraint(
+          equalTo: firstKanaRow.heightAnchor, multiplier: rowsTall,
+          constant: rowsTall > 1 ? 7 * (rowsTall - 1) : 0).isActive = true
+      }
+    }
   }
   required init(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
@@ -137,65 +196,129 @@ final class JapaneseNineKeyView: UIStackView {
 /// Every Japanese flick keyboard shows one: the four directions around the centre, with the one the
 /// finger is heading towards picked out. Without it the only feedback was the key's own title
 /// changing underneath the finger covering it.
+/// One floating tile of the flick cross. The shadow lives here rather than on a shared panel so the
+/// four directions read as separate targets the finger can land on, not as one popup.
+@MainActor
+private final class KanaFlickChip: UIView {
+  let label = UILabel()
+
+  init() {
+    super.init(frame: .zero)
+    layer.cornerRadius = 8
+    layer.shadowColor = UIColor.black.cgColor
+    layer.shadowOpacity = 0.25
+    layer.shadowRadius = 6
+    layer.shadowOffset = CGSize(width: 0, height: 2)
+    label.textAlignment = .center
+    label.font = .systemFont(ofSize: 22, weight: .regular)
+    label.adjustsFontSizeToFitWidth = true
+    label.minimumScaleFactor = 0.6
+    label.translatesAutoresizingMaskIntoConstraints = false
+    addSubview(label)
+    NSLayoutConstraint.activate([
+      label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 2),
+      label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -2),
+      label.topAnchor.constraint(equalTo: topAnchor),
+      label.bottomAnchor.constraint(equalTo: bottomAnchor),
+    ])
+  }
+
+  required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+}
+
 @MainActor
 private final class KanaFlickPreview: UIView {
-  private let labels: [UILabel] = (0..<5).map { _ in
-    let label = UILabel()
-    label.textAlignment = .center
-    label.font = .systemFont(ofSize: 19, weight: .medium)
-    label.translatesAutoresizingMaskIntoConstraints = false
-    return label
-  }
+  /// 中心、左、上、右、下 —— 和 Key.kana 的顺序一致。
+  private static let offsets: [CGPoint] = [
+    CGPoint(x: 0, y: 0), CGPoint(x: -1, y: 0), CGPoint(x: 0, y: -1), CGPoint(x: 1, y: 0),
+    CGPoint(x: 0, y: 1),
+  ]
+  private static let gap: CGFloat = 6
+
+  private let chips: [KanaFlickChip] = (0..<5).map { _ in KanaFlickChip() }
+  /// One per direction (left, up, right, down) — the centre needs none.
+  private let arrows: [CAShapeLayer] = (0..<4).map { _ in CAShapeLayer() }
+  private var cell = CGSize(width: 44, height: 44)
 
   init() {
     super.init(frame: .zero)
     isUserInteractionEnabled = false
     isHidden = true
-    let skin = KeyboardSkinPreference.selected
-    backgroundColor = skin.keyBackground
-    layer.cornerRadius = 12
-    layer.shadowColor = UIColor.black.cgColor
-    layer.shadowOpacity = 0.22
-    layer.shadowRadius = 8
-    layer.shadowOffset = CGSize(width: 0, height: 3)
-    for label in labels { addSubview(label) }
-    let cell: CGFloat = 44
-    // 中心、左、上、右、下 —— 和 Key.kana 的顺序一致。
-    let offsets: [(CGFloat, CGFloat)] = [(0, 0), (-1, 0), (0, -1), (1, 0), (0, 1)]
-    for (label, offset) in zip(labels, offsets) {
-      NSLayoutConstraint.activate([
-        label.widthAnchor.constraint(equalToConstant: cell),
-        label.heightAnchor.constraint(equalToConstant: cell),
-        label.centerXAnchor.constraint(equalTo: centerXAnchor, constant: offset.0 * cell),
-        label.centerYAnchor.constraint(equalTo: centerYAnchor, constant: offset.1 * cell),
-      ])
-    }
-    NSLayoutConstraint.activate([
-      widthAnchor.constraint(equalToConstant: cell * 3),
-      heightAnchor.constraint(equalToConstant: cell * 3),
-    ])
+    backgroundColor = .clear
+    for arrow in arrows { layer.addSublayer(arrow) }
+    for chip in chips { addSubview(chip) }
   }
 
   required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
+  override func layoutSubviews() {
+    super.layoutSubviews()
+    let middle = CGPoint(x: bounds.midX, y: bounds.midY)
+    let step = CGSize(width: cell.width + Self.gap, height: cell.height + Self.gap)
+    for (index, chip) in chips.enumerated() {
+      let offset = Self.offsets[index]
+      chip.frame = CGRect(
+        x: middle.x + offset.x * step.width - cell.width / 2,
+        y: middle.y + offset.y * step.height - cell.height / 2,
+        width: cell.width,
+        height: cell.height)
+    }
+    for (index, arrow) in arrows.enumerated() {
+      arrow.frame = bounds
+      arrow.path = Self.arrowPath(from: middle, towards: Self.offsets[index + 1], cell: cell)
+    }
+  }
+
+  /// A small triangle sitting in the gap between the centre tile and one direction, pointing outwards.
+  private static func arrowPath(from middle: CGPoint, towards direction: CGPoint, cell: CGSize)
+    -> CGPath
+  {
+    let reach = CGPoint(
+      x: direction.x * (cell.width / 2 + gap / 2), y: direction.y * (cell.height / 2 + gap / 2))
+    let anchor = CGPoint(x: middle.x + reach.x, y: middle.y + reach.y)
+    let tip = CGPoint(x: anchor.x + direction.x * 4, y: anchor.y + direction.y * 4)
+    let base = CGPoint(x: anchor.x - direction.x * 4, y: anchor.y - direction.y * 4)
+    let across = CGPoint(x: direction.y * 5, y: direction.x * 5)
+    let path = CGMutablePath()
+    path.move(to: tip)
+    path.addLine(to: CGPoint(x: base.x + across.x, y: base.y + across.y))
+    path.addLine(to: CGPoint(x: base.x - across.x, y: base.y - across.y))
+    path.closeSubpath()
+    return path
+  }
+
   func show(_ kana: [String], highlighting direction: Int, over key: UIView, in host: UIView) {
     let skin = KeyboardSkinPreference.selected
-    backgroundColor = skin.keyBackground
-    for (index, label) in labels.enumerated() {
+    for (index, chip) in chips.enumerated() {
       let text = index < kana.count ? kana[index] : ""
-      label.text = text
-      label.isHidden = text.isEmpty
+      chip.label.text = text
+      chip.isHidden = text.isEmpty
       let chosen = index == direction
-      label.textColor = chosen ? skin.actionForeground : skin.keyForeground
-      label.backgroundColor = chosen ? skin.accent : .clear
-      label.layer.cornerRadius = 10
-      label.clipsToBounds = true
+      chip.label.textColor = chosen ? skin.actionForeground : skin.keyForeground
+      chip.backgroundColor = chosen ? skin.accent : skin.keyBackground
     }
-    if superview !== host { host.addSubview(self) }
-    host.bringSubviewToFront(self)
+    for (index, arrow) in arrows.enumerated() {
+      let target = index + 1
+      let reachable = target < kana.count && !kana[target].isEmpty
+      arrow.isHidden = !reachable
+      arrow.fillColor =
+        (target == direction ? skin.accent : skin.keyForeground.withAlphaComponent(0.35)).cgColor
+    }
+
+    // The cross is centred on the key itself, so the direction the finger moves is the direction the
+    // highlight moves. That mapping is the whole point, and it only holds if the two share a centre.
+    // It also means the upward tile overflows the keyboard, hence the top-most ancestor rather than
+    // the nine-key view, whose bounds would clip it.
+    var canvas = host
+    while let parent = canvas.superview { canvas = parent }
+    if superview !== canvas { canvas.addSubview(self) }
+    canvas.bringSubviewToFront(self)
     translatesAutoresizingMaskIntoConstraints = true
-    let origin = key.convert(CGPoint(x: key.bounds.midX, y: key.bounds.midY), to: host)
-    center = CGPoint(x: origin.x, y: origin.y - bounds.height / 2 - 6)
+    cell = CGSize(width: max(key.bounds.width, 40), height: max(key.bounds.height, 36))
+    let step = CGSize(width: cell.width + Self.gap, height: cell.height + Self.gap)
+    bounds = CGRect(origin: .zero, size: CGSize(width: step.width * 3, height: step.height * 3))
+    center = key.convert(CGPoint(x: key.bounds.midX, y: key.bounds.midY), to: canvas)
+    setNeedsLayout()
     isHidden = false
   }
 
