@@ -1059,13 +1059,19 @@ static NSHashTable *LiveDictionaryControllers()
                                    !_sessionSnapshot.answered_by_pinyin_fallback &&
                                    [MetasequoiaPreferencesWindowController storedWubiCodeHintEnabled];
     const std::string wubiTypedCode = annotateWubiCodes ? _sessionSnapshot.preedit : std::string{};
-    const BOOL verticalPanel = metasequoia::mac::NormalizeCandidatePanelStyle(
-                                   [MetasequoiaPreferencesWindowController storedCandidatePanelStyle]) ==
-                               metasequoia::mac::CandidatePanelStyle::Vertical;
-    const BOOL onlineTranslation = MetasequoiaInputFlag(@"candidateTranslation");
+    // 默认开。The gloss goes through the account's own model at api.msime.app, so it costs the user
+    // no keys of their own and there is nothing to set up before it works; leaving it off by default
+    // meant the feature existed and nobody saw it.
+    const BOOL onlineTranslation = MetasequoiaInputFlag(@"candidateTranslation", YES);
+    // 本地词典是回落,不是替代品。It used to be consulted only when the online path was switched off,
+    // so turning that on and having nothing to serve it -- no account signed in, a request still in
+    // flight, a word the model did not return -- left the candidate with no gloss at all rather than
+    // the offline one it would have had.
     EnglishDictionary *glossDictionary = nullptr;
-    if (!onlineTranslation && [MetasequoiaPreferencesWindowController storedCandidateTranslationsEnabled] &&
-        verticalPanel && _sessionSnapshot.scheme != SchemeType::JapaneseRomaji)
+    // 横竖排都给。The panel used to read this attribute only when vertical, so a gloss computed for a
+    // horizontal panel was thrown away; both now draw it.
+    if ([MetasequoiaPreferencesWindowController storedCandidateTranslationsEnabled] &&
+        _sessionSnapshot.scheme != SchemeType::JapaneseRomaji)
     {
         glossDictionary = [self translationDictionary];
     }
@@ -1075,6 +1081,7 @@ static NSHashTable *LiveDictionaryControllers()
         NSString *display = MetasequoiaStringFromUtf8(metasequoia::mac::CandidateDisplayText(
             candidate, _sessionSnapshot.scheme, annotateHelpcodes, _activeHelpcodeKeymap.get(), wubiTypedCode));
         NSString *convertedDisplay = MetasequoiaChineseOutputString(display, traditionalOutput);
+        BOOL carriesTranslation = NO;
         if (onlineTranslation)
         {
             NSString *language =
@@ -1085,10 +1092,13 @@ static NSHashTable *LiveDictionaryControllers()
             NSString *translation = _translationCache[
                 [NSString stringWithFormat:@"%@|%@", language, MetasequoiaStringFromUtf8(candidate.word)]];
             if (translation.length)
+            {
                 convertedDisplay = [NSString stringWithFormat:@"%@  %@", convertedDisplay, translation];
+                carriesTranslation = YES;
+            }
         }
         NSAttributedString *indexed = MetasequoiaIndexedCandidateString(convertedDisplay, candidateIndex);
-        if (glossDictionary != nullptr)
+        if (glossDictionary != nullptr && !carriesTranslation)
         {
             if (const auto query = metasequoia::mac::TranslationQueryForCandidate(candidate))
             {
@@ -1132,7 +1142,7 @@ static NSHashTable *LiveDictionaryControllers()
 
 - (void)requestCandidateTranslationsForSnapshot:(const metasequoia::SessionSnapshot &)snapshot
 {
-    if (!MetasequoiaInputFlag(@"candidateTranslation") || !snapshot.preedit.size())
+    if (!MetasequoiaInputFlag(@"candidateTranslation", YES) || !snapshot.preedit.size())
         return;
     NSString *endpoint = [NSUserDefaults.standardUserDefaults stringForKey:@"translationEndpoint"];
     const NSInteger providerIndex = MetasequoiaInputInteger(@"translationProvider", 0, 0, 2);
