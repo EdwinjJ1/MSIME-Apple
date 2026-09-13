@@ -51,12 +51,17 @@ static bool CandidateRegionsMatch(NSBitmapImageRep *left, NSBitmapImageRep *righ
 
 @interface CandidatePanelTestDelegate : NSObject <MetasequoiaCandidatePanelDelegate>
 @property(nonatomic, strong) NSAttributedString *selection;
+@property(nonatomic, strong) NSAttributedString *pinned;
 @property(nonatomic) NSUInteger nextPages;
 @end
 @implementation CandidatePanelTestDelegate
 - (void)candidateSelected:(NSAttributedString *)candidate
 {
     self.selection = candidate;
+}
+- (void)candidatePinToggled:(NSAttributedString *)candidate
+{
+    self.pinned = candidate;
 }
 - (void)candidatePanelNextPage
 {
