@@ -715,8 +715,14 @@ final class NineKeyKeyboardTests: XCTestCase {
       for scheme in ChineseInputScheme.allCases {
         let card = try button("schemeCard-\(scheme.rawValue)", in: controller)
         XCTAssertGreaterThanOrEqual(card.bounds.width, 60)
-        XCTAssertEqual(card.bounds.height, 62, accuracy: 0.1)
+        // 行平分面板高度,所以只有下限;底下不该再留一块裸背景。
+        XCTAssertGreaterThanOrEqual(card.bounds.height, 62)
       }
+      let lowestCard = try ChineseInputScheme.allCases
+        .map { try button("schemeCard-\($0.rawValue)", in: controller).convert(button("schemeCard-\($0.rawValue)", in: controller).bounds, to: picker).maxY }
+        .max() ?? 0
+      XCTAssertGreaterThan(lowestCard, picker.bounds.height - 80,
+                           "卡片下面空出了一大块背景")
       XCTAssertEqual(try button("schemeCard-nineKey", in: controller).accessibilityValue, "已选中")
       let attachment = XCTAttachment(image: UIGraphicsImageRenderer(bounds: controller.view.bounds).image { context in
         controller.view.layer.render(in: context.cgContext)
@@ -1094,8 +1100,10 @@ final class NineKeyKeyboardTests: XCTestCase {
       XCTAssertFalse(toolbar.isHidden)
       let brand = try XCTUnwrap(descendants(toolbar).first { $0.accessibilityIdentifier == "keyboardBrandIcon" } as? UIImageView)
       XCTAssertNotNil(brand.image)
-      XCTAssertEqual(brand.bounds.width, 24, accuracy: 0.1)
-      XCTAssertEqual(brand.bounds.height, 24, accuracy: 0.1)
+      XCTAssertEqual(brand.bounds.width, 28, accuracy: 0.1)
+      XCTAssertEqual(brand.bounds.height, 28, accuracy: 0.1)
+      // 源图是白底黑字、没有 alpha,直接贴就是一块白方块;转成模板图才能跟着皮肤着色。
+      XCTAssertEqual(brand.image?.renderingMode, .alwaysTemplate)
       let brandSlot = try XCTUnwrap(brand.superview)
       XCTAssertGreaterThanOrEqual(brand.frame.minX, 6)
       XCTAssertGreaterThanOrEqual(brandSlot.bounds.width - brand.frame.maxX, 6)

@@ -1,4 +1,5 @@
 import SwiftUI
+import CoreImage
 import UIKit
 
 @MainActor
@@ -111,6 +112,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var replyPanelSuppressed = false
   /// 候选行与快捷栏所在的容器 —— 高情商回复的面板要挂在它下面,而不是盖住它。
   private weak var compositionContainer: UIView?
+  /// 共享候选条上正显示的手写结果 —— chip 是按下标绑引擎的,手写得从这里取字。
+  private var handwritingResults: [String] = []
   private var reportedStatisticsFailure = false
   private var visiblePreedit = ""
   /// 日语変換进行到第几个候选。nil 表示还没按过空格 —— 这时回车是無変換確定,交出假名本身。
@@ -390,6 +393,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       render(session.finishComposition())
       insertOwnText(ChineseTextConversion.outputString(text, traditional: usesTraditionalOutput), source: .handwriting)
       playInputClick()
+    }
+    // 手写的候选走共享的那条,和别的方案同一个位置、同一个样子。
+    handwriting.onResults = { [weak self] words in
+      guard let self, inputScheme == .handwriting, isChineseMode else { return }
+      handwritingResults = words
+      updateCandidateStrip(preedit: "", candidates: words)
     }
     handwriting.canDownload = { [weak self] in self?.hasFullAccess == true }
     handwriting.onDelete = { [weak self] in self?.handleBackspace() }
@@ -770,20 +779,17 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     shortcutBar.translatesAutoresizingMaskIntoConstraints = false
     let brand = moreShortcut
     let icon = UIImageView()
-    if let path = Bundle(for: KeyboardViewController.self).path(forResource: "KeyboardBrand", ofType: "png") {
-      icon.image = UIImage(contentsOfFile: path)?.preparingThumbnail(of: CGSize(width: 72, height: 72))
-    }
+    icon.image = Self.brandTemplate()
+    icon.tintColor = KeyboardSkinPreference.selected.accent
     icon.accessibilityIdentifier = "keyboardBrandIcon"
     icon.contentMode = .scaleAspectFit
-    icon.layer.cornerRadius = 5
-    icon.clipsToBounds = true
     icon.translatesAutoresizingMaskIntoConstraints = false
     brand.addSubview(icon)
     shortcutBar.addArrangedSubview(brand)
     NSLayoutConstraint.activate([
       brand.widthAnchor.constraint(equalToConstant: 44),
-      icon.widthAnchor.constraint(equalToConstant: 24),
-      icon.heightAnchor.constraint(equalToConstant: 24),
+      icon.widthAnchor.constraint(equalToConstant: 28),
+      icon.heightAnchor.constraint(equalToConstant: 28),
       icon.centerXAnchor.constraint(equalTo: brand.centerXAnchor),
       icon.centerYAnchor.constraint(equalTo: brand.centerYAnchor),
     ])
@@ -2353,6 +2359,22 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   /// 候选按钮的骨架。位置固定,只建一次,内容由 updateCandidateButton 每次刷新。
+  /// 品牌图是白底黑字、没有 alpha,直接贴上去就是快捷栏左端的一块白方块。
+  ///
+  /// 反色之后拿亮度当 alpha:黑字形变成不透明,白底变透明。得到的模板图用 accent 着色,和栏里其它
+  /// 图标同一个处理方式,换皮肤时也跟着走。
+  private static func brandTemplate() -> UIImage? {
+    guard let path = Bundle(for: KeyboardViewController.self).path(forResource: "KeyboardBrand", ofType: "png"),
+      let source = UIImage(contentsOfFile: path), let cgImage = source.cgImage
+    else { return nil }
+    let input = CIImage(cgImage: cgImage)
+    guard let inverted = CIFilter(name: "CIColorInvert", parameters: [kCIInputImageKey: input])?.outputImage,
+      let masked = CIFilter(name: "CIMaskToAlpha", parameters: [kCIInputImageKey: inverted])?.outputImage,
+      let output = CIContext().createCGImage(masked, from: masked.extent)
+    else { return nil }
+    return UIImage(cgImage: output).withRenderingMode(.alwaysTemplate)
+  }
+
   private func makeCandidateButton(index: Int) -> UIButton {
     var configuration = UIButton.Configuration.plain()
     configuration.baseForegroundColor = KeyboardSkinPreference.selected.keyForeground
@@ -2368,6 +2390,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       primaryAction: UIAction { [weak self] _ in
         guard let self else { return }
         self.playInputClick()
+        // 手写的候选不是引擎给的,不能按下标回给引擎选。
+        if self.inputScheme == .handwriting, !self.handwritingResults.isEmpty {
+          if self.handwriting.use(at: index) { self.handwritingResults = [] }
+          return
+        }
         self.render(self.session.selectCandidate(at: UInt(index)))
       })
     button.accessibilityIdentifier = "candidate-\(index + 1)"
@@ -2548,9 +2575,16 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     // The composition line added a row to the candidate strip; the keyboard grew by it rather than
     // taking the space out of the keys.
     let extra = Self.compositionRowHeight
-    let base: CGFloat = handwriting.isHidden
+    // 竖屏手写和别的方案同高。It used to claim 100pt more, which reflowed whatever the user was typing
+    // into every time they switched to it. Handing the candidates to the shared strip gave the canvas
+    // back the 36pt its private one was holding, so the common height now carries a canvas about as
+    // tall as the old 300pt compromise did.
+    //
+    // 横屏留一点。There the keyboard is short to begin with and the same trade leaves too little to
+    // write a character in.
+    let base: CGFloat = handwriting.isHidden || !landscape
       ? (landscape ? 216 + extra : 260 + extra)
-      : (landscape ? 260 + extra : 360 + extra)
+      : 240 + extra
     // The rows divide whatever height the keyboard claims, so this reaches the key faces too --
     // which is the point, since a key too small to hit is what this setting answers.
     let height = base + CGFloat(KeyboardLayoutPreference.heightAdjustment)

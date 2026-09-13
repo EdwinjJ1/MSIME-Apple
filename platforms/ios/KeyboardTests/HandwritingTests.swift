@@ -79,6 +79,21 @@ final class HandwritingTests: XCTestCase {
     XCTAssertTrue(panel.results.isEmpty)
     XCTAssertTrue(panel.canvas.strokes.isEmpty)
   }
+  func testEveryPointOnThePanelAcceptsInkExceptTheToolKeys() throws {
+    // 画布垫在两层 UIStackView 底下,而 stack 自己会接触摸 —— 一度整块面板都写不了字,连原本能写的
+    // 卡片也一起堵死了。
+    let panel = HandwritingInputView(frame: CGRect(x: 0, y: 0, width: 320, height: 200))
+    panel.layoutIfNeeded()
+    for point in [CGPoint(x: 20, y: 10), CGPoint(x: 120, y: 100), CGPoint(x: 40, y: 190),
+                  CGPoint(x: 160, y: 4)] {
+      XCTAssertTrue(panel.hitTest(point, with: nil) === panel.canvas,
+                    "\(point) 落在了 \(String(describing: panel.hitTest(point, with: nil))) 上,写不出字")
+    }
+    let undo = try XCTUnwrap(nodes(panel).first { $0.accessibilityIdentifier == "handwritingUndo" })
+    let onUndo = undo.convert(CGPoint(x: undo.bounds.midX, y: undo.bounds.midY), to: panel)
+    XCTAssertTrue(panel.hitTest(onUndo, with: nil) === undo, "工具键仍然要接点击")
+  }
+
   func testHandwritingSchemeKeepsToolbarAndSwitchesBackToLetters() throws {
     let previous = InputSchemePreference.scheme
     let enabled = InputSchemePreference.enabledSchemes
@@ -88,11 +103,12 @@ final class HandwritingTests: XCTestCase {
     let controller = KeyboardViewController(); controller.loadViewIfNeeded()
     for width in [320.0, 414.0] {
       let height = try XCTUnwrap(controller.view.constraints.first { $0.identifier == "keyboardHeight" })
-      XCTAssertEqual(height.constant, 360 + KeyboardViewController.compositionRowHeight)
+      XCTAssertEqual(height.constant, 260 + KeyboardViewController.compositionRowHeight)
       controller.view.frame = CGRect(x: 0, y: 0, width: width, height: height.constant); controller.view.layoutIfNeeded()
       let panel = try XCTUnwrap(nodes(controller.view).first { $0.accessibilityIdentifier == "handwritingInput" } as? HandwritingInputView)
       XCTAssertFalse(panel.isHidden)
-      XCTAssertGreaterThanOrEqual(panel.canvas.bounds.height, 200)
+      // 竖屏和别的方案同高之后画布实测 150 —— 候选交还给共享候选条,省下的 36pt 都回到了画布上。
+      XCTAssertGreaterThanOrEqual(panel.canvas.bounds.height, 140)
       XCTAssertGreaterThan(panel.canvas.bounds.width, 200)
       let shot = XCTAttachment(image: UIGraphicsImageRenderer(bounds: controller.view.bounds).image { controller.view.layer.render(in: $0.cgContext) }); shot.name = "Handwriting keyboard \(Int(width))"; shot.lifetime = .keepAlways; add(shot)
     }
@@ -101,7 +117,7 @@ final class HandwritingTests: XCTestCase {
     XCTAssertEqual(controller.view.constraints.first { $0.identifier == "keyboardHeight" }?.constant, 260 + KeyboardViewController.compositionRowHeight)
     XCTAssertTrue(try XCTUnwrap(nodes(controller.view).first { $0.accessibilityIdentifier == "handwritingInput" }).isHidden)
     language.sendActions(for: .primaryActionTriggered)
-    XCTAssertEqual(controller.view.constraints.first { $0.identifier == "keyboardHeight" }?.constant, 360 + KeyboardViewController.compositionRowHeight)
+    XCTAssertEqual(controller.view.constraints.first { $0.identifier == "keyboardHeight" }?.constant, 260 + KeyboardViewController.compositionRowHeight)
     XCTAssertFalse(try XCTUnwrap(nodes(controller.view).first { $0.accessibilityIdentifier == "handwritingInput" }).isHidden)
   }
   func testHandwritingHeightTracksOrientationAndSymbolMode() throws {
@@ -119,9 +135,9 @@ final class HandwritingTests: XCTestCase {
     let panel = try XCTUnwrap(nodes(controller.view).first { $0 is HandwritingInputView } as? HandwritingInputView)
     let enter = try XCTUnwrap(nodes(controller.view).first { $0.accessibilityIdentifier == "returnKey" })
     for (verticalSize, width, writingHeight, typingHeight) in [
-      (UIUserInterfaceSizeClass.regular, 414.0, 360.0 + KeyboardViewController.compositionRowHeight, 260.0 + KeyboardViewController.compositionRowHeight),
-      (.compact, 812.0, 260.0 + KeyboardViewController.compositionRowHeight, 216.0 + KeyboardViewController.compositionRowHeight),
-      (.regular, 320.0, 360.0 + KeyboardViewController.compositionRowHeight, 260.0 + KeyboardViewController.compositionRowHeight),
+      (UIUserInterfaceSizeClass.regular, 414.0, 260.0 + KeyboardViewController.compositionRowHeight, 260.0 + KeyboardViewController.compositionRowHeight),
+      (.compact, 812.0, 240.0 + KeyboardViewController.compositionRowHeight, 216.0 + KeyboardViewController.compositionRowHeight),
+      (.regular, 320.0, 260.0 + KeyboardViewController.compositionRowHeight, 260.0 + KeyboardViewController.compositionRowHeight),
     ] {
       parent.setOverrideTraitCollection(UITraitCollection(verticalSizeClass: verticalSize), forChild: controller)
       controller.viewDidLayoutSubviews()
@@ -129,7 +145,8 @@ final class HandwritingTests: XCTestCase {
       controller.view.frame = CGRect(x: 0, y: 0, width: width, height: writingHeight)
       controller.view.layoutIfNeeded()
       XCTAssertEqual(enter.bounds.height, 44, accuracy: 0.5)
-      XCTAssertGreaterThanOrEqual(panel.canvas.bounds.height, verticalSize == .compact ? 110 : 200)
+      // 下限按实测钉死:键盘每矮一点都是从画布上割的,这两个数字是「还写得下一个字」的底线。
+      XCTAssertGreaterThanOrEqual(panel.canvas.bounds.height, verticalSize == .compact ? 90 : 140)
       toggle.sendActions(for: .primaryActionTriggered)
       XCTAssertTrue(panel.isHidden)
       XCTAssertEqual(height.constant, typingHeight)
