@@ -92,6 +92,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var actionDeleteButton: UIButton!
   private var actionGlobeButton: UIButton!
   private var japaneseGlobeButton: UIButton?
+  private var japaneseSymbolsButton: UIButton?
   private var globeWidthConstraint: NSLayoutConstraint?
   private var japaneseKeys: JapaneseNineKeyView!
   private var japaneseHeight: NSLayoutConstraint!
@@ -355,6 +356,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     japaneseSpace.accessibilityIdentifier = "japaneseSpace"
     japaneseReturn.accessibilityIdentifier = "japaneseReturn"
     japaneseSymbols.accessibilityIdentifier = "japaneseSymbols"
+    japaneseSymbolsButton = japaneseSymbols
     japaneseLanguage.accessibilityIdentifier = "japaneseLanguage"
     japaneseEmoji.accessibilityIdentifier = "japaneseEmoji"
     japaneseGlobe.accessibilityIdentifier = "japaneseGlobe"
@@ -1958,11 +1960,23 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     standardRowHeights.forEach { $0.1.isActive = false }
     microsoftFinalKey?.isHidden = !(isChineseMode && inputScheme == .microsoft && !session.isInLocalMode)
     let kana = isChineseMode && inputScheme == .japaneseNineKey && !session.isInLocalMode
-    japaneseKeys?.isHidden = !kana || showsSymbols
+    // 假名九键切数字仍然是九键。Handing 123 over to the 26-key symbol page put a ten-across layout
+    // under a keyboard the user picked for three columns, the same mistake the Chinese nine-key
+    // already avoids by keeping its own digit layer.
+    japaneseKeys?.isHidden = !kana
+    japaneseKeys?.setDigits(kana && showsSymbols)
+    // 键面写的是按下去会去哪一层,不是当前在哪一层。
+    if let symbols = japaneseSymbolsButton {
+      let title = kana && showsSymbols ? "あいう" : "123"
+      if symbols.configuration?.title != title {
+        symbols.configuration?.title = title
+        symbols.accessibilityLabel = title == "123" ? "切换到数字和符号" : "切换到假名"
+      }
+    }
     // 假名面板自带 ⌫ / 空白 / 改行、模式键和地球键,底排没有任何东西可放了,整条收起。
     // Hiding the row itself rather than its keys one by one: the per-key pass had no counterpart on
     // the way back, so 空白 and 改行 stayed hidden once the user returned to Chinese.
-    actionRow?.isHidden = kana && !showsSymbols
+    actionRow?.isHidden = kana
     japaneseGlobeButton?.isHidden = !needsInputModeSwitchKey
     japaneseHeight?.constant = KeyboardLayoutPreference.rowSpacing * 2
     // 面板自带底排之后,剩下的高度整块归它 —— 再把高度绑在已经隐藏的动作行上,算出来是 0。
@@ -2023,7 +2037,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       symbolDeleteWidth?.isActive = showsSymbols
       NSLayoutConstraint.activate(usesNineKeyLayout ? nineKeyActionWidths : standardActionWidths)
     }
-    symbolRowViews.forEach { $0.isHidden = !showsSymbols || (isChineseMode && inputScheme == .nineKey && !session.isInLocalMode) }
+    symbolRowViews.forEach { $0.isHidden = !showsSymbols || kana || (isChineseMode && inputScheme == .nineKey && !session.isInLocalMode) }
     // Chinese punctuation only comes out in Chinese mode, and a local utility mode takes the plain
     // character, so the face follows what the key is actually going to insert right now.
     let sendsChinesePunctuation = isChineseMode && !session.isInLocalMode

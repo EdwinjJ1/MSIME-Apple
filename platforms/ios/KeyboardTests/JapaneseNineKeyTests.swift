@@ -127,6 +127,42 @@ final class JapaneseNineKeyTests: XCTestCase {
     XCTAssertGreaterThan(shortest, 0)
   }
 
+  func testDigitLayerKeepsTheSameThreeColumnGrid() throws {
+    var inserted: [String] = []
+    let panel = JapaneseNineKeyView(makeKey: { title, _, action in
+      var config = UIButton.Configuration.plain(); config.title = title
+      return UIButton(configuration: config, primaryAction: UIAction { _ in action() })
+    }, makeDelete: {
+      var config = UIButton.Configuration.plain(); config.title = "⌫"
+      return UIButton(configuration: config)
+    })
+    panel.onSymbol = { inserted.append($0) }
+    panel.frame = CGRect(x: 0, y: 0, width: 414, height: 235)
+    panel.applyLayout(); panel.layoutIfNeeded()
+    let kanaButtons = { self.nodes(panel).compactMap { $0 as? UIButton }
+      .filter { ($0.accessibilityIdentifier ?? "").hasPrefix("japaneseKana") } }
+    let before = kanaButtons().count
+
+    panel.setDigits(true)
+    panel.layoutIfNeeded()
+    XCTAssertEqual(kanaButtons().count, before, "数字层不该换掉键盘,格子数应当不变")
+    let faces = kanaButtons().compactMap { $0.configuration?.title }
+    for digit in ["1", "5", "9", "0"] {
+      XCTAssertTrue(faces.contains(digit), "数字层上没有 \(digit)")
+    }
+    // 三列:每一行最多三个格子,不能变成二十六键那种十列。
+    let columns = Set(kanaButtons().map { $0.convert($0.bounds, to: panel).minX.rounded() })
+    XCTAssertEqual(columns.count, 3, "数字层应当还是三列")
+
+    panel.select(0, direction: 0)
+    XCTAssertEqual(inserted, ["1"], "数字层的键应当直接上屏,不走罗马字转换")
+
+    panel.setDigits(false)
+    panel.layoutIfNeeded()
+    let kana = kanaButtons().compactMap { $0.configuration?.title }
+    XCTAssertTrue(kana.contains("あ"), "切回来之后键面应当恢复成假名")
+  }
+
   func testVariantKeyIsDisabledUntilThereIsAKanaToModify() throws {
     let panel = JapaneseNineKeyView(makeKey: { title, _, action in
       var config = UIButton.Configuration.plain(); config.title = title

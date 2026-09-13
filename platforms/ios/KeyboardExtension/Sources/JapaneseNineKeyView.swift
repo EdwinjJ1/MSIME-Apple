@@ -29,6 +29,26 @@ final class JapaneseNineKeyView: UIStackView {
     // only be reached by switching to the symbol page and back.
     Key(kana: ["、", "。", "？", "！", "…"], strokes: ["", "", "", "", ""]),
   ]
+  /// 数字层同样是三列。A keyboard chosen for three columns should not hand over to a ten-across
+  /// symbol page the moment 123 is pressed — the Chinese nine-key already keeps its own grid here.
+  /// Empty strokes send every one of these down the punctuation path, which inserts them directly
+  /// instead of feeding the romaji converter.
+  static let digitKeys: [Key] = [
+    Key(kana: ["1", "☆", "♪", "→", ""], strokes: ["", "", "", "", ""]),
+    Key(kana: ["2", "¥", "$", "€", ""], strokes: ["", "", "", "", ""]),
+    Key(kana: ["3", "%", "°", "#", ""], strokes: ["", "", "", "", ""]),
+    Key(kana: ["4", "○", "*", "・", ""], strokes: ["", "", "", "", ""]),
+    Key(kana: ["5", "+", "-", "=", ""], strokes: ["", "", "", "", ""]),
+    Key(kana: ["6", "<", "^", ">", ""], strokes: ["", "", "", "", ""]),
+    Key(kana: ["7", "「", "」", "：", ""], strokes: ["", "", "", "", ""]),
+    Key(kana: ["8", "〒", "※", "♂", ""], strokes: ["", "", "", "", ""]),
+    Key(kana: ["9", "（", "）", "／", ""], strokes: ["", "", "", "", ""]),
+    Key(kana: ["0", "〜", "…", "ー", ""], strokes: ["", "", "", "", ""]),
+    Key(kana: ["、", "。", "？", "！", "…"], strokes: ["", "", "", "", ""]),
+  ]
+  private var showsDigits = false
+  private var activeKeys: [Key] { showsDigits ? Self.digitKeys : Self.keys }
+
   var onInput: ((String) -> Void)?
   var onSymbol: ((String) -> Void)?
   var onDelete: (() -> Void)?
@@ -39,9 +59,13 @@ final class JapaneseNineKeyView: UIStackView {
   private var variantsKey: UIButton?
   private let preview = KanaFlickPreview()
 
+  private var isComposing = false
+
   /// 有假名可改时才点得动 小゛゜ —— 由控制器在每次 render 时告知。
   func setComposing(_ composing: Bool) {
-    variantsKey?.isEnabled = composing
+    isComposing = composing
+    // 数字层上那一格是括号键,和有没有在组字无关。
+    variantsKey?.isEnabled = showsDigits || composing
   }
 
   /// 侧栏按钮由控制器提供 —— 它们要接系统的地球键行为、长按连删和宿主的回车动作,
@@ -88,7 +112,10 @@ final class JapaneseNineKeyView: UIStackView {
     // は→ば→ぱ→は, つ→っ→づ→つ. This was a three-level menu of 36 fresh kana, so か followed by
     // picking が produced かが, and one dakuten cost three taps and a visual search through a menu
     // that covered the candidate strip.
-    let variants = makeKey("小゛゜", "小書き、濁点、半濁点", { [weak self] in self?.onVariant?() })
+    let variants = makeKey("小゛゜", "小書き、濁点、半濁点", { [weak self] in
+      guard let self else { return }
+      showsDigits ? onSymbol?("（") : onVariant?()
+    })
     variants.accessibilityIdentifier = "japaneseVariants"
     variants.accessibilityHint = "直前のかなを小書き・濁点・半濁点に切り替えます"
     variants.configuration?.contentInsets = .zero
@@ -135,20 +162,12 @@ final class JapaneseNineKeyView: UIStackView {
   required init(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
   private func makeKanaKey(_ index: Int, factory: (String, String, @escaping () -> Void) -> UIButton) -> UIButton {
-    let key = Self.keys[index]
-    let button = factory(key.kana[0], key.kana.joined(separator: "、"), { [weak self] in self?.select(index, direction: 0) })
+    let button = factory(Self.keys[index].kana[0], "", { [weak self] in self?.select(index, direction: 0) })
     button.accessibilityIdentifier = "japaneseKana\(index)"
-    // 日语键面上的说明用日语。A Japanese typist reading 轻点输入 recognised none of it; these are
-    // the terms their own keyboards use.
-    button.accessibilityHint = "タップで\(key.kana[0])、左・上・右・下にフリックで他のかな、長押しで一覧"
-    button.configuration?.subtitle = key.kana.dropFirst().joined(separator: " ")
     button.configuration?.subtitleTextAttributesTransformer = UIConfigurationTextAttributesTransformer {
       var attributes = $0; attributes.font = .systemFont(ofSize: 10); return attributes
     }
     button.configuration?.contentInsets = .init(top: 2, leading: 0, bottom: 2, trailing: 0)
-    button.menu = UIMenu(children: key.kana.enumerated().map { direction, kana in
-      UIAction(title: kana) { [weak self] _ in self?.select(index, direction: direction) }
-    })
     let pan = KanaFlickGesture { [weak self, weak button] direction, phase in
       guard let self, let button else { return }
       switch phase {
@@ -160,16 +179,59 @@ final class JapaneseNineKeyView: UIStackView {
       case .moving:
         // 十字导览,而不是改键面。Writing the target onto the key the finger is covering meant the
         // one thing the user could not see was the thing they were choosing.
-        preview.show(key.kana, highlighting: direction, over: button, in: self)
+        preview.show(activeKeys[index].kana, highlighting: direction, over: button, in: self)
       }
     }
     button.addGestureRecognizer(pan)
     keyButtons.append(button)
+    applyFace(index, to: button)
     return button
   }
+
+  /// 键面跟着当前层走 —— 同一个按钮在假名层是 あ,在数字层是 1。
+  private func applyFace(_ index: Int, to button: UIButton) {
+    let key = activeKeys[index]
+    button.configuration?.title = key.kana[0]
+    button.configuration?.subtitle = key.kana.dropFirst().filter { !$0.isEmpty }.joined(separator: " ")
+    button.accessibilityLabel = key.kana.filter { !$0.isEmpty }.joined(separator: "、")
+    // 日语键面上的说明用日语。A Japanese typist reading 轻点输入 recognised none of it; these are
+    // the terms their own keyboards use.
+    button.accessibilityHint = "タップで\(key.kana[0])、左・上・右・下にフリックで他の文字、長押しで一覧"
+    button.menu = UIMenu(children: key.kana.enumerated().filter { !$0.element.isEmpty }.map {
+      direction, character in
+      UIAction(title: character) { [weak self] _ in self?.select(index, direction: direction) }
+    })
+  }
+
+  /// 数字层第四行第一格。These have no other home on the layout, and the slot is free because the
+  /// post-modifier has nothing to modify once the keys stop producing kana.
+  private static let brackets = ["（", "）", "「", "」", "『", "』", "【", "】"]
+
+  /// 切到数字层。九键还是九键,只是键面换成数字和符号。
+  func setDigits(_ on: Bool) {
+    guard on != showsDigits else { return }
+    showsDigits = on
+    for (index, button) in keyButtons.enumerated() where activeKeys.indices.contains(index) {
+      applyFace(index, to: button)
+    }
+    guard let variants = variantsKey else { return }
+    variants.configuration?.title = on ? "（）" : "小゛゜"
+    variants.accessibilityLabel = on ? "括弧" : "小書き、濁点、半濁点"
+    variants.accessibilityHint =
+      on ? "長押しで他の括弧" : "直前のかなを小書き・濁点・半濁点に切り替えます"
+    variants.isEnabled = on || isComposing
+    variants.menu =
+      on
+      ? UIMenu(children: Self.brackets.map { bracket in
+        UIAction(title: bracket) { [weak self] _ in self?.onSymbol?(bracket) }
+      }) : nil
+  }
   func select(_ index: Int, direction: Int) {
-    guard Self.keys.indices.contains(index), Self.keys[index].kana.indices.contains(direction) else { return }
-    let key = Self.keys[index]
+    let table = activeKeys
+    guard table.indices.contains(index), table[index].kana.indices.contains(direction) else { return }
+    let key = table[index]
+    // 空键面是数字层留的占位(数字键只有四个方向有字),点上去不该发出空串。
+    guard !key.kana[direction].isEmpty else { return }
     if key.strokes[direction].isEmpty { onSymbol?(key.kana[direction]) }
     else { onInput?(key.strokes[direction]) }
   }
