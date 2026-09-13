@@ -109,6 +109,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private let spellingStack = UIStackView()
   private var usesTraditionalOutput = false
   private var replyPanelSuppressed = false
+  /// 候选行与快捷栏所在的容器 —— 高情商回复的面板要挂在它下面,而不是盖住它。
+  private weak var compositionContainer: UIView?
   private var reportedStatisticsFailure = false
   private var visiblePreedit = ""
   /// 日语変換进行到第几个候选。nil 表示还没按过空格 —— 这时回车是無変換確定,交出假名本身。
@@ -641,6 +643,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   private func makeCandidateStrip() -> UIView {
     let container = UIView()
+    compositionContainer = container
     container.accessibilityIdentifier = "candidateStrip"
     container.backgroundColor = KeyboardSkinPreference.selected.keyBackground.withAlphaComponent(0.82)
     container.layer.cornerRadius = 12
@@ -1580,10 +1583,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         guard let self else { return }
         guard hasFullAccess else { replyModel.status = "粘贴与 AI 需要允许完全访问"; return }
         replyModel.setText(UIPasteboard.general.string ?? "")
-      }, generate: { [weak self] style in self?.generateReply(style: style) },
-      schemes: { [weak self] in self?.showSchemePicker() },
-      skins: { [weak self] in self?.showSkinPicker() },
-      dismiss: { [weak self] in self?.dismissKeyboard() }))
+      }, generate: { [weak self] style in self?.generateReply(style: style) }))
     replyPanel = panel
     addChild(panel)
     panel.view.accessibilityIdentifier = "replyKeyboard"
@@ -1593,7 +1593,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     NSLayoutConstraint.activate([
       panel.view.leadingAnchor.constraint(equalTo: view.leadingAnchor),
       panel.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-      panel.view.topAnchor.constraint(equalTo: view.topAnchor),
+      // 顶边停在快捷栏下面,不盖住它。Covering the whole keyboard forced this panel to grow a second
+      // toolbar of its own — similar to the real one but not the same — and it also buried the AI key,
+      // which is shown only in this scheme and so could not be reached at all.
+      panel.view.topAnchor.constraint(equalTo: compositionContainer?.bottomAnchor ?? view.topAnchor),
       panel.view.bottomAnchor.constraint(equalTo: view.bottomAnchor)
     ])
     panel.didMove(toParent: self)
