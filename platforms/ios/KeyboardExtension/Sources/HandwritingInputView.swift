@@ -101,6 +101,8 @@ final class HandwritingRecognizer {
 
 final class HandwritingCanvas: UIView {
   private(set) var strokes: [[CGPoint]] = []
+  /// 卡片画在这个矩形里;墨迹不受它限制,整块面板都能写。
+  var cardRect: CGRect = .zero { didSet { if cardRect != oldValue { setNeedsDisplay() } } }
   var onChange: (() -> Void)?
   var onStrokeBegan: (() -> Void)?
   var acceptsInk = true
@@ -119,7 +121,7 @@ final class HandwritingCanvas: UIView {
     accessibilityHint = "用手指书写，停笔后选择上方候选文字"
     isMultipleTouchEnabled = false
     isOpaque = false
-    layer.cornerRadius = 10
+    // 圆角由 draw 画在 cardRect 上,不再是整个视图的图层圆角 —— 视图现在铺满面板。
     clipsToBounds = true
   }
   required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
@@ -160,18 +162,21 @@ final class HandwritingCanvas: UIView {
   override func draw(_ rect: CGRect) {
     guard let context = UIGraphicsGetCurrentContext() else { return }
     let skin = KeyboardSkinPreference.selected
-    skin.keyBackground.setFill(); context.fill(bounds)
+    let card = cardRect.isEmpty ? bounds : cardRect
+    UIBezierPath(roundedRect: card, cornerRadius: 10).addClip()
+    skin.keyBackground.setFill(); context.fill(card)
     context.setStrokeColor(skin.accent.withAlphaComponent(0.12).cgColor)
     context.setLineDash(phase: 0, lengths: [4, 4]); context.setLineWidth(1)
-    context.move(to: CGPoint(x: bounds.midX, y: 0)); context.addLine(to: CGPoint(x: bounds.midX, y: bounds.height))
-    context.move(to: CGPoint(x: 0, y: bounds.midY)); context.addLine(to: CGPoint(x: bounds.width, y: bounds.midY)); context.strokePath()
+    context.move(to: CGPoint(x: card.midX, y: card.minY)); context.addLine(to: CGPoint(x: card.midX, y: card.maxY))
+    context.move(to: CGPoint(x: card.minX, y: card.midY)); context.addLine(to: CGPoint(x: card.maxX, y: card.midY)); context.strokePath()
     context.setLineDash(phase: 0, lengths: [])
+    context.resetClip()
     drawInk(context, color: skin.keyForeground, width: 3)
     if strokes.isEmpty {
       let text = "在此手写"
       let attrs: [NSAttributedString.Key: Any] = [.font: UIFont.systemFont(ofSize: 21), .foregroundColor: skin.keyForeground.withAlphaComponent(0.3)]
       let size = (text as NSString).size(withAttributes: attrs)
-      (text as NSString).draw(at: CGPoint(x: bounds.midX - size.width / 2, y: bounds.midY - size.height / 2), withAttributes: attrs)
+      (text as NSString).draw(at: CGPoint(x: card.midX - size.width / 2, y: card.midY - size.height / 2), withAttributes: attrs)
     }
   }
   func setTestStrokes(_ values: [[CGPoint]]) { strokes = values; setNeedsDisplay(); onChange?() }
@@ -179,6 +184,8 @@ final class HandwritingCanvas: UIView {
 
 final class HandwritingInputView: UIView {
   let canvas = HandwritingCanvas()
+  /// 卡片该画在哪儿 —— 透明,只提供几何,不接触摸。
+  private let cardGuide = UIView()
   /// 识别结果交给控制器铺到共享候选条上 —— 手写不再自己维护一条。
   var onResults: (([String]) -> Void)?
   private let status = UILabel()
@@ -252,12 +259,16 @@ final class HandwritingInputView: UIView {
     status.translatesAutoresizingMaskIntoConstraints = false
     // 画布和工具列之间的横向留白跟随布局偏好 —— 横向不吃总高,可以跟。
     let row = UIStackView(); row.spacing = KeyboardLayoutPreference.keySpacing
-    row.addArrangedSubview(canvas)
-    canvas.addSubview(status)
+    // 卡片的位置由这个透明占位视图定义;画布本身铺满整块面板,负责收笔迹和画墨迹。
+    // 这样看上去和以前一样,但手指落在面板任何地方都能写,而不是只有那张卡片里。
+    cardGuide.isUserInteractionEnabled = false
+    cardGuide.backgroundColor = .clear
+    row.addArrangedSubview(cardGuide)
+    cardGuide.addSubview(status)
     NSLayoutConstraint.activate([
-      status.centerXAnchor.constraint(equalTo: canvas.centerXAnchor),
-      status.leadingAnchor.constraint(greaterThanOrEqualTo: canvas.leadingAnchor, constant: 12),
-      status.trailingAnchor.constraint(lessThanOrEqualTo: canvas.trailingAnchor, constant: -12),
+      status.centerXAnchor.constraint(equalTo: cardGuide.centerXAnchor),
+      status.leadingAnchor.constraint(greaterThanOrEqualTo: cardGuide.leadingAnchor, constant: 12),
+      status.trailingAnchor.constraint(lessThanOrEqualTo: cardGuide.trailingAnchor, constant: -12),
     ])
     let tools = UIStackView(); tools.axis = .vertical; tools.spacing = 4
     tools.distribution = .fillEqually
@@ -275,6 +286,15 @@ final class HandwritingInputView: UIView {
     row.addArrangedSubview(tools); column.addArrangedSubview(row)
     addSubview(column); column.translatesAutoresizingMaskIntoConstraints = false
     NSLayoutConstraint.activate([column.leadingAnchor.constraint(equalTo: leadingAnchor), column.trailingAnchor.constraint(equalTo: trailingAnchor), column.topAnchor.constraint(equalTo: topAnchor), column.bottomAnchor.constraint(equalTo: bottomAnchor)])
+    // 画布垫在最底下,铺满整块面板。工具键在它上面,照常接点击。
+    insertSubview(canvas, at: 0)
+    canvas.translatesAutoresizingMaskIntoConstraints = false
+    NSLayoutConstraint.activate([
+      canvas.leadingAnchor.constraint(equalTo: leadingAnchor),
+      canvas.trailingAnchor.constraint(equalTo: trailingAnchor),
+      canvas.topAnchor.constraint(equalTo: topAnchor),
+      canvas.bottomAnchor.constraint(equalTo: bottomAnchor),
+    ])
     // 和假名侧列同一个比例,不是写死的 44 —— 窄一格的侧列在别的方案里都不存在。
     //
     // 接在 addSubview 之后。两个视图之间的约束在双方入树之前激活就是 "no common ancestor",而那是
@@ -284,7 +304,7 @@ final class HandwritingInputView: UIView {
     let share = tools.widthAnchor.constraint(equalTo: widthAnchor, multiplier: 0.17)
     share.priority = .defaultHigh
     share.isActive = true
-    canvas.addSubview(modelButton)
+    cardGuide.addSubview(modelButton)
     modelButton.translatesAutoresizingMaskIntoConstraints = false
     modelButton.backgroundColor = .secondarySystemBackground
     modelButton.layer.cornerRadius = 12
@@ -294,9 +314,9 @@ final class HandwritingInputView: UIView {
     modelButton.isHidden = true
     modelButton.addAction(UIAction { [weak self] _ in self?.toggleDownload() }, for: .primaryActionTriggered)
     NSLayoutConstraint.activate([
-      modelButton.centerXAnchor.constraint(equalTo: canvas.centerXAnchor),
-      modelButton.centerYAnchor.constraint(equalTo: canvas.centerYAnchor),
-      modelButton.widthAnchor.constraint(equalTo: canvas.widthAnchor, multiplier: 0.85),
+      modelButton.centerXAnchor.constraint(equalTo: cardGuide.centerXAnchor),
+      modelButton.centerYAnchor.constraint(equalTo: cardGuide.centerYAnchor),
+      modelButton.widthAnchor.constraint(equalTo: cardGuide.widthAnchor, multiplier: 0.85),
       modelButton.heightAnchor.constraint(equalToConstant: 44),
     ])
     canvas.onStrokeBegan = { [weak self] in self?.invalidate(); self?.showStatus("书写中…") }
@@ -312,10 +332,15 @@ final class HandwritingInputView: UIView {
   ///
   /// 约束等到双方都进了视图树再建 —— 在 init 里提前引用还没 addSubview 的按钮,激活时就是
   /// "no common ancestor" 异常,而且是抛出而不是警告,整个键盘会当场构造失败。
+  override func layoutSubviews() {
+    super.layoutSubviews()
+    canvas.cardRect = cardGuide.convert(cardGuide.bounds, to: canvas)
+  }
+
   private func placeStatus() {
     guard status.superview != nil else { return }
     if statusCentred == nil {
-      statusCentred = status.centerYAnchor.constraint(equalTo: canvas.centerYAnchor)
+      statusCentred = status.centerYAnchor.constraint(equalTo: cardGuide.centerYAnchor)
     }
     if statusBelowModelButton == nil, modelButton.superview != nil {
       statusBelowModelButton = status.topAnchor.constraint(
