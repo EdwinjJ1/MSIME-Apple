@@ -172,12 +172,9 @@ final class HandwritingCanvas: UIView {
     context.setLineDash(phase: 0, lengths: [])
     context.resetClip()
     drawInk(context, color: skin.keyForeground, width: 3)
-    if strokes.isEmpty {
-      let text = "在此手写"
-      let attrs: [NSAttributedString.Key: Any] = [.font: UIFont.systemFont(ofSize: 21), .foregroundColor: skin.keyForeground.withAlphaComponent(0.3)]
-      let size = (text as NSString).size(withAttributes: attrs)
-      (text as NSString).draw(at: CGPoint(x: card.midX - size.width / 2, y: card.midY - size.height / 2), withAttributes: attrs)
-    }
+    // 占位字不在这里画。The status label sits centred on the same card and says the same thing, and it
+    // also carries the live messages -- downloading, recognising, failed -- so two hints were stacked
+    // on top of each other. One of them has to go, and it is the one that can only ever say one thing.
   }
   func setTestStrokes(_ values: [[CGPoint]]) { strokes = values; setNeedsDisplay(); onChange?() }
 }
@@ -252,7 +249,7 @@ final class HandwritingInputView: UIView {
     // 提示话写在画布里,不占候选条。The strip was doing both jobs: a status line sat where the
     // candidates belong, and showStatus("") left an empty label parked in front of the first one, so
     // the row never started where the eye expected. The canvas is where the user is looking anyway.
-    status.font = .systemFont(ofSize: 13); status.text = "一次写一个字，停笔后选字"
+    status.font = .systemFont(ofSize: 13); status.text = "在此手写，停笔后选字"
     status.accessibilityIdentifier = "handwritingStatus"
     status.textAlignment = .center
     status.numberOfLines = 2
@@ -335,6 +332,18 @@ final class HandwritingInputView: UIView {
   override func layoutSubviews() {
     super.layoutSubviews()
     canvas.cardRect = cardGuide.convert(cardGuide.bounds, to: canvas)
+  }
+
+  /// 除了真正的按钮,面板里的触摸一律交给画布。
+  ///
+  /// 画布垫在最底下,而它上面盖着两层 UIStackView。A stack view takes touches itself: hit testing
+  /// returns it whenever no deeper subview claims the point, so every stroke landed on the stack and
+  /// the canvas underneath never saw one -- the panel stopped accepting ink entirely, including on
+  /// the card that used to work. Only UIControl gets to keep a hit here; the tool keys and the model
+  /// download button are controls, the containers are not.
+  override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+    guard let hit = super.hitTest(point, with: event) else { return nil }
+    return hit is UIControl ? hit : canvas
   }
 
   private func placeStatus() {

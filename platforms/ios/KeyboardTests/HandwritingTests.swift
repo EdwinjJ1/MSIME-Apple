@@ -79,6 +79,21 @@ final class HandwritingTests: XCTestCase {
     XCTAssertTrue(panel.results.isEmpty)
     XCTAssertTrue(panel.canvas.strokes.isEmpty)
   }
+  func testEveryPointOnThePanelAcceptsInkExceptTheToolKeys() throws {
+    // 画布垫在两层 UIStackView 底下,而 stack 自己会接触摸 —— 一度整块面板都写不了字,连原本能写的
+    // 卡片也一起堵死了。
+    let panel = HandwritingInputView(frame: CGRect(x: 0, y: 0, width: 320, height: 200))
+    panel.layoutIfNeeded()
+    for point in [CGPoint(x: 20, y: 10), CGPoint(x: 120, y: 100), CGPoint(x: 40, y: 190),
+                  CGPoint(x: 160, y: 4)] {
+      XCTAssertTrue(panel.hitTest(point, with: nil) === panel.canvas,
+                    "\(point) 落在了 \(String(describing: panel.hitTest(point, with: nil))) 上,写不出字")
+    }
+    let undo = try XCTUnwrap(nodes(panel).first { $0.accessibilityIdentifier == "handwritingUndo" })
+    let onUndo = undo.convert(CGPoint(x: undo.bounds.midX, y: undo.bounds.midY), to: panel)
+    XCTAssertTrue(panel.hitTest(onUndo, with: nil) === undo, "工具键仍然要接点击")
+  }
+
   func testHandwritingSchemeKeepsToolbarAndSwitchesBackToLetters() throws {
     let previous = InputSchemePreference.scheme
     let enabled = InputSchemePreference.enabledSchemes
