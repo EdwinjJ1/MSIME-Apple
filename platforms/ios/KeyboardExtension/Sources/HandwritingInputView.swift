@@ -187,6 +187,8 @@ final class HandwritingInputView: UIView {
     return recognizerStorage!
   }
   private let modelButton = UIButton(type: .system)
+  private var statusCentred: NSLayoutConstraint?
+  private var statusBelowModelButton: NSLayoutConstraint?
   private var downloadTask: Task<Void, Never>?
   var canDownload: () -> Bool = { false }
   func activate() {
@@ -194,6 +196,7 @@ final class HandwritingInputView: UIView {
     modelButton.isEnabled = true
     canvas.acceptsInk = ready
     modelButton.isHidden = ready
+    placeStatus()
     if !ready && downloadTask == nil {
       modelButton.setTitle("下载中文手写模型", for: .normal)
       showStatus(canDownload() ? "首次下载后可离线手写" : "首次下载需在系统设置允许完全访问")
@@ -234,12 +237,21 @@ final class HandwritingInputView: UIView {
   override init(frame: CGRect) {
     super.init(frame: frame)
     accessibilityIdentifier = "handwritingInput"
+    let layout = KeyboardLayoutPreference.geometry
+    // 竖向的间距和条高都不跟布局偏好走 —— 横屏总高是定死的,这里多要一点就等于从画布上割一点,
+    // 而画布本来就只剩一百来点。横向间距不吃高度,那个照常跟随。
     let column = UIStackView(); column.axis = .vertical; column.spacing = 4
     let scroll = UIScrollView(); scroll.showsHorizontalScrollIndicator = false
     scroll.disableEdgeEffects()
-    candidates.axis = .horizontal; candidates.spacing = 8
-    status.font = .systemFont(ofSize: 12); status.text = "一次写一个字，停笔后选字"; status.accessibilityIdentifier = "handwritingStatus"
-    candidates.addArrangedSubview(status)
+    candidates.axis = .horizontal; candidates.spacing = layout.keySpacing
+    // 提示话写在画布里,不占候选条。The strip was doing both jobs: a status line sat where the
+    // candidates belong, and showStatus("") left an empty label parked in front of the first one, so
+    // the row never started where the eye expected. The canvas is where the user is looking anyway.
+    status.font = .systemFont(ofSize: 13); status.text = "一次写一个字，停笔后选字"
+    status.accessibilityIdentifier = "handwritingStatus"
+    status.textAlignment = .center
+    status.numberOfLines = 2
+    status.translatesAutoresizingMaskIntoConstraints = false
     scroll.addSubview(candidates)
     candidates.translatesAutoresizingMaskIntoConstraints = false
     NSLayoutConstraint.activate([
@@ -251,8 +263,15 @@ final class HandwritingInputView: UIView {
       scroll.heightAnchor.constraint(equalToConstant: 32),
     ])
     column.addArrangedSubview(scroll)
-    let row = UIStackView(); row.spacing = 6; row.addArrangedSubview(canvas)
-    let tools = UIStackView(); tools.axis = .vertical; tools.spacing = 4; tools.distribution = .fillEqually
+    let row = UIStackView(); row.spacing = layout.keySpacing; row.addArrangedSubview(canvas)
+    canvas.addSubview(status)
+    NSLayoutConstraint.activate([
+      status.centerXAnchor.constraint(equalTo: canvas.centerXAnchor),
+      status.leadingAnchor.constraint(greaterThanOrEqualTo: canvas.leadingAnchor, constant: 12),
+      status.trailingAnchor.constraint(lessThanOrEqualTo: canvas.trailingAnchor, constant: -12),
+    ])
+    let tools = UIStackView(); tools.axis = .vertical; tools.spacing = 4
+    tools.distribution = .fillEqually
     for (title, id, action) in [
       ("撤销", "handwritingUndo", { [weak self] in self?.canvas.undo() }),
       ("清空", "handwritingClear", { [weak self] in self?.clear() }),
@@ -263,10 +282,19 @@ final class HandwritingInputView: UIView {
       button.addAction(UIAction { _ in action() }, for: .primaryActionTriggered)
       tools.addArrangedSubview(button)
     }
-    tools.widthAnchor.constraint(equalToConstant: 44).isActive = true
+    tools.widthAnchor.constraint(greaterThanOrEqualToConstant: 44).isActive = true
     row.addArrangedSubview(tools); column.addArrangedSubview(row)
     addSubview(column); column.translatesAutoresizingMaskIntoConstraints = false
     NSLayoutConstraint.activate([column.leadingAnchor.constraint(equalTo: leadingAnchor), column.trailingAnchor.constraint(equalTo: trailingAnchor), column.topAnchor.constraint(equalTo: topAnchor), column.bottomAnchor.constraint(equalTo: bottomAnchor)])
+    // 和假名侧列同一个比例,不是写死的 44 —— 窄一格的侧列在别的方案里都不存在。
+    //
+    // 接在 addSubview 之后。两个视图之间的约束在双方入树之前激活就是 "no common ancestor",而那是
+    // 抛异常不是告警,整个键盘会当场构造失败;常量约束没有这个问题,所以上面那条可以写在前面。
+    // 横屏下 17% 就是 138pt,三个小键占不了那么宽,所以给个上限。
+    tools.widthAnchor.constraint(lessThanOrEqualToConstant: 72).isActive = true
+    let share = tools.widthAnchor.constraint(equalTo: widthAnchor, multiplier: 0.17)
+    share.priority = .defaultHigh
+    share.isActive = true
     canvas.addSubview(modelButton)
     modelButton.translatesAutoresizingMaskIntoConstraints = false
     modelButton.backgroundColor = .secondarySystemBackground
@@ -288,10 +316,30 @@ final class HandwritingInputView: UIView {
   required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
   private func invalidate() { revision = UUID(); task?.cancel(); task = nil; results = [] }
   func clear() { invalidate(); canvas.clear() }
+  /// 画布中央本来就站着下载按钮,提示得让开它,否则两行字叠在一起。
+  ///
+  /// 约束等到双方都进了视图树再建 —— 在 init 里提前引用还没 addSubview 的按钮,激活时就是
+  /// "no common ancestor" 异常,而且是抛出而不是警告,整个键盘会当场构造失败。
+  private func placeStatus() {
+    guard status.superview != nil else { return }
+    if statusCentred == nil {
+      statusCentred = status.centerYAnchor.constraint(equalTo: canvas.centerYAnchor)
+    }
+    if statusBelowModelButton == nil, modelButton.superview != nil {
+      statusBelowModelButton = status.topAnchor.constraint(
+        equalTo: modelButton.bottomAnchor, constant: 10)
+    }
+    let sharesTheCanvas = !modelButton.isHidden && statusBelowModelButton != nil
+    statusBelowModelButton?.isActive = sharesTheCanvas
+    statusCentred?.isActive = !sharesTheCanvas
+  }
+
+  /// 只清候选并改画布上的提示 —— 两者分开之后,识别出来的字直接从条子最左边开始。
   private func showStatus(_ text: String) {
     candidates.arrangedSubviews.forEach { candidates.removeArrangedSubview($0); $0.removeFromSuperview() }
     status.text = text; status.textColor = KeyboardSkinPreference.selected.keyForeground
-    candidates.addArrangedSubview(status)
+    status.isHidden = text.isEmpty
+    placeStatus()
   }
   private func scheduleRecognition() {
     invalidate()
