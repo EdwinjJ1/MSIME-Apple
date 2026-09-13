@@ -1213,7 +1213,12 @@ final class NineKeyKeyboardTests: XCTestCase {
         for symbols in [false, true] {
           if symbols { try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered) }
           controller.view.layoutIfNeeded()
-          XCTAssertEqual(try button("returnKey", in: controller).bounds.height, reference, accuracy: 0.5)
+          // 假名面板自带 ⌫ / 空白 / 改行,共用底排整条收起,所以这一层要量的是面板自己的改行键。它跨两行,只要不矮于普通键即可。
+          if scheme == .japaneseNineKey {
+            XCTAssertGreaterThanOrEqual(try button("japaneseReturn", in: controller).bounds.height, reference - 0.5)
+          } else {
+            XCTAssertEqual(try button("returnKey", in: controller).bounds.height, reference, accuracy: 0.5)
+          }
           XCTAssertEqual(controller.view.constraints.first { $0.identifier == "keyboardHeight" }?.constant, 260 + KeyboardViewController.compositionRowHeight)
           if !symbols && [.nineKey, .quanpin].contains(scheme) {
             let selector = try button("schemeButton", in: controller)
