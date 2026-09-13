@@ -1890,12 +1890,13 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     var configuration = UIButton.Configuration.plain()
     configuration.image = UIImage(systemName: "keyboard")
     configuration.baseForegroundColor = KeyboardSkinPreference.selected.accent
+    // 内边距保留 —— 栏里其它五个键的宽度都钉在这个键上,收窄它就是把六个靶子一起收窄。
     configuration.contentInsets = NSDirectionalEdgeInsets(
       top: 3, leading: 4, bottom: 3, trailing: 4)
-    configuration.background.strokeColor = KeyboardSkinPreference.selected.accent.withAlphaComponent(0.35)
-    configuration.background.strokeWidth = 1
-    configuration.background.cornerRadius = 8
-    configuration.background.backgroundInsets = NSDirectionalEdgeInsets(top: 3, leading: 2, bottom: 3, trailing: 2)
+    // 不描边,和栏里其它五个键一样裸着。The stroke was the only thing marking this key out, and it
+    // marked out nothing: the face is the same keyboard glyph whatever scheme is active, so the box
+    // carried no state while still giving one of six equal shortcuts more visual weight than the rest.
+    // 当前方案由 accessibilityValue 和点开的面板表达。
     configuration.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { attributes in
       var attributes = attributes
       attributes.font = .systemFont(ofSize: 16, weight: .medium)
