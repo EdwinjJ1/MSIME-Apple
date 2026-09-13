@@ -586,8 +586,11 @@ final class NineKeyKeyboardTests: XCTestCase {
       let toolbar = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "keyboardShortcutBar" } as? UIStackView)
       let more = try button("moreShortcut", in: controller)
       XCTAssertTrue(toolbar.arrangedSubviews.first === more)
+      // 键盘设置紧跟在品牌键后面,选择输入方案挪到了收起键旁边。
+      XCTAssertTrue(toolbar.arrangedSubviews[1] === (try button("layoutShortcut", in: controller)))
       let skinIndex = try XCTUnwrap(toolbar.arrangedSubviews.firstIndex(of: button("skinShortcut", in: controller)))
-      XCTAssertTrue(toolbar.arrangedSubviews[skinIndex + 1] === (try button("layoutShortcut", in: controller)))
+      XCTAssertTrue(toolbar.arrangedSubviews[skinIndex + 1] === (try button("schemeButton", in: controller)))
+      XCTAssertTrue(toolbar.arrangedSubviews.last === (try button("dismissShortcut", in: controller)))
       for item in toolbar.arrangedSubviews {
         XCTAssertGreaterThanOrEqual(item.bounds.width, 42)
         XCTAssertLessThanOrEqual(item.frame.maxX, toolbar.bounds.width + 0.5)

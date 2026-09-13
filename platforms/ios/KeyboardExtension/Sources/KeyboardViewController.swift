@@ -109,6 +109,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private let spellingStack = UIStackView()
   private var usesTraditionalOutput = false
   private var replyPanelSuppressed = false
+  /// 候选行与快捷栏所在的容器 —— 高情商回复的面板要挂在它下面,而不是盖住它。
+  private weak var compositionContainer: UIView?
   private var reportedStatisticsFailure = false
   private var visiblePreedit = ""
   /// 日语変換进行到第几个候选。nil 表示还没按过空格 —— 这时回车是無変換確定,交出假名本身。
@@ -641,6 +643,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   private func makeCandidateStrip() -> UIView {
     let container = UIView()
+    compositionContainer = container
     container.accessibilityIdentifier = "candidateStrip"
     container.backgroundColor = KeyboardSkinPreference.selected.keyBackground.withAlphaComponent(0.82)
     container.layer.cornerRadius = 12
@@ -784,11 +787,16 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       icon.centerXAnchor.constraint(equalTo: brand.centerXAnchor),
       icon.centerYAnchor.constraint(equalTo: brand.centerYAnchor),
     ])
-    for button in [schemeButton, scriptShortcut, emojiShortcut, skinShortcut, layoutShortcut, dismissShortcut] {
-      shortcutBar.addArrangedSubview(button)
-      if button !== schemeButton {
-        button.widthAnchor.constraint(equalTo: schemeButton.widthAnchor).isActive = true
-      }
+    // 键盘设置在最左,输入方案挪到收起键旁边。Switching scheme is a deliberate, occasional act and the
+    // settings entry is the one reached most often, so the frequent one takes the end of the bar that
+    // the thumb rests nearest and the deliberate one moves away from an accidental brush.
+    let shortcuts = [layoutShortcut, scriptShortcut, emojiShortcut, skinShortcut, schemeButton, dismissShortcut]
+    for button in shortcuts { shortcutBar.addArrangedSubview(button) }
+    // 宽度等到所有按钮都进了层级再接。Activating inside the loop quietly required schemeButton to come
+    // first: every other key measures against it, and anything placed ahead of it was constraining a
+    // view that was not in the hierarchy yet, which throws rather than warns.
+    for button in shortcuts where button !== schemeButton {
+      button.widthAnchor.constraint(equalTo: schemeButton.widthAnchor).isActive = true
     }
     container.addSubview(shortcutBar)
     NSLayoutConstraint.activate([
@@ -1575,10 +1583,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         guard let self else { return }
         guard hasFullAccess else { replyModel.status = "粘贴与 AI 需要允许完全访问"; return }
         replyModel.setText(UIPasteboard.general.string ?? "")
-      }, generate: { [weak self] style in self?.generateReply(style: style) },
-      schemes: { [weak self] in self?.showSchemePicker() },
-      skins: { [weak self] in self?.showSkinPicker() },
-      dismiss: { [weak self] in self?.dismissKeyboard() }))
+      }, generate: { [weak self] style in self?.generateReply(style: style) }))
     replyPanel = panel
     addChild(panel)
     panel.view.accessibilityIdentifier = "replyKeyboard"
@@ -1588,7 +1593,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     NSLayoutConstraint.activate([
       panel.view.leadingAnchor.constraint(equalTo: view.leadingAnchor),
       panel.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-      panel.view.topAnchor.constraint(equalTo: view.topAnchor),
+      // 顶边停在快捷栏下面,不盖住它。Covering the whole keyboard forced this panel to grow a second
+      // toolbar of its own — similar to the real one but not the same — and it also buried the AI key,
+      // which is shown only in this scheme and so could not be reached at all.
+      panel.view.topAnchor.constraint(equalTo: compositionContainer?.bottomAnchor ?? view.topAnchor),
       panel.view.bottomAnchor.constraint(equalTo: view.bottomAnchor)
     ])
     panel.didMove(toParent: self)
@@ -1885,12 +1893,13 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     var configuration = UIButton.Configuration.plain()
     configuration.image = UIImage(systemName: "keyboard")
     configuration.baseForegroundColor = KeyboardSkinPreference.selected.accent
+    // 内边距保留 —— 栏里其它五个键的宽度都钉在这个键上,收窄它就是把六个靶子一起收窄。
     configuration.contentInsets = NSDirectionalEdgeInsets(
       top: 3, leading: 4, bottom: 3, trailing: 4)
-    configuration.background.strokeColor = KeyboardSkinPreference.selected.accent.withAlphaComponent(0.35)
-    configuration.background.strokeWidth = 1
-    configuration.background.cornerRadius = 8
-    configuration.background.backgroundInsets = NSDirectionalEdgeInsets(top: 3, leading: 2, bottom: 3, trailing: 2)
+    // 不描边,和栏里其它五个键一样裸着。The stroke was the only thing marking this key out, and it
+    // marked out nothing: the face is the same keyboard glyph whatever scheme is active, so the box
+    // carried no state while still giving one of six equal shortcuts more visual weight than the rest.
+    // 当前方案由 accessibilityValue 和点开的面板表达。
     configuration.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { attributes in
       var attributes = attributes
       attributes.font = .systemFont(ofSize: 16, weight: .medium)
