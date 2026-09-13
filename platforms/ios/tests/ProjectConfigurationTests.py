@@ -680,7 +680,8 @@ sys.exit(int(os.environ["UPLOAD_STATUS"]))
         self.assertIn("case .google, .search, .yahoo:", controller)
         self.assertIn("case .send:", controller)
         self.assertIn("case .done:", controller)
-        self.assertIn("enterButton?.accessibilityLabel = title", controller)
+        # 键面写什么,读屏就念什么 —— 别把断言钉在那个局部变量的名字上。
+        self.assertRegex(controller, r"enterButton\?\.accessibilityLabel = \w+")
 
         self.assertIn("textDocumentProxy.autocapitalizationType ?? .sentences", controller)
 
@@ -789,8 +790,13 @@ sys.exit(int(os.environ["UPLOAD_STATUS"]))
         self.assertIn("#selector(handleInputModeButton(_:event:))", controller)
         self.assertIn("for: .allTouchEvents", controller)
         self.assertIn("touch.phase == .began", controller)
-        self.assertIn("render(session.commitRaw())", controller)
-        self.assertIn("handleInputModeList(from: sender, with: event)", controller)
+        # 交给系统之前必须先把在组的字结清,否则切走时半截 preedit 会留在文档里。断言看的是这件事有没有做,
+        # 不是它写成哪个表达式:日语下 commitRaw 交出的是罗马字,所以那一路走 finishComposition。
+        handler = controller.split("func handleInputModeButton")[1].split("\n  }")[0]
+        self.assertIn("render(", handler)
+        self.assertIn("session.commitRaw()", handler)
+        self.assertIn("session.finishComposition()", handler)
+        self.assertIn("handleInputModeList(from: sender, with: event)", handler)
         self.assertNotIn("advanceToNextInputMode()", controller)
 
     def test_bridge_compiles_every_engine_source_directory(self):
