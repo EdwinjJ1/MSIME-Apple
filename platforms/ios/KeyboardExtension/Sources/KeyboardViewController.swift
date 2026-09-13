@@ -91,6 +91,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var actionRow: UIStackView!
   private var actionDeleteButton: UIButton!
   private var actionGlobeButton: UIButton!
+  private var japaneseGlobeButton: UIButton?
   private var globeWidthConstraint: NSLayoutConstraint?
   private var japaneseKeys: JapaneseNineKeyView!
   private var japaneseHeight: NSLayoutConstraint!
@@ -343,15 +344,21 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let japaneseReturn = makeKey(title: "改行", accessibilityLabel: "改行", emphasized: true) { [weak self] in self?.handleReturn() }
     let japaneseSymbols = makeKey(title: "123", accessibilityLabel: "切换到数字和符号") { [weak self] in self?.toggleLayout() }
     let japaneseLanguage = makeKey(title: "英", accessibilityLabel: "切换中英文") { [weak self] in self?.toggleInputMode() }
-    // 地球键不进侧列 —— 实机上它在独立的底条上,侧列只放三个键。
     let japaneseEmoji = makeKey(title: "^_^", accessibilityLabel: "顔文字と絵文字") { [weak self] in
       self?.showEmojiPicker()
     }
+    // 地球键进左列第四格,底排就整条空了 —— 省下的那一行高度归假名区。Its own bar costs a full row to
+    // carry one key, and the column had a four-row hole to fill anyway.
+    let japaneseGlobe = makeSymbolKey(symbol: "globe", accessibilityLabel: "选择下一个键盘")
+    japaneseGlobe.addTarget(
+      self, action: #selector(handleInputModeButton(_:event:)), for: .allTouchEvents)
     japaneseSpace.accessibilityIdentifier = "japaneseSpace"
     japaneseReturn.accessibilityIdentifier = "japaneseReturn"
     japaneseSymbols.accessibilityIdentifier = "japaneseSymbols"
     japaneseLanguage.accessibilityIdentifier = "japaneseLanguage"
     japaneseEmoji.accessibilityIdentifier = "japaneseEmoji"
+    japaneseGlobe.accessibilityIdentifier = "japaneseGlobe"
+    japaneseGlobeButton = japaneseGlobe
     japaneseSpaceButton = japaneseSpace
     japaneseReturnButton = japaneseReturn
     japaneseLanguageButton = japaneseLanguage
@@ -359,7 +366,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       makeKey(title: title, accessibilityLabel: label, action: action)
     }, makeDelete: { [unowned self] in makeDeleteKey() },
        sideKeys: [japaneseSpace, japaneseReturn],
-       modeKeys: [japaneseSymbols, japaneseEmoji, japaneseLanguage])
+       modeKeys: [japaneseSymbols, japaneseEmoji, japaneseLanguage, japaneseGlobe])
     japaneseKeys.onInput = { [weak self] input in
       guard let self, isChineseMode, inputScheme.isJapanese else { return }
       playInputClick()
@@ -1952,12 +1959,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     microsoftFinalKey?.isHidden = !(isChineseMode && inputScheme == .microsoft && !session.isInLocalMode)
     let kana = isChineseMode && inputScheme == .japaneseNineKey && !session.isInLocalMode
     japaneseKeys?.isHidden = !kana || showsSymbols
-    // 假名面板自己带了 ⌫ / 空白 / 改行 和模式键;底排只留地球键,这正是实机上它待的地方。
-    let kanaOwnsTheKeys = kana && !showsSymbols
-    for child in actionRow?.arrangedSubviews ?? [] where child !== actionGlobeButton {
-      if kanaOwnsTheKeys { child.isHidden = true }
-    }
-    actionRow?.isHidden = false
+    // 假名面板自带 ⌫ / 空白 / 改行、模式键和地球键,底排没有任何东西可放了,整条收起。
+    // Hiding the row itself rather than its keys one by one: the per-key pass had no counterpart on
+    // the way back, so 空白 and 改行 stayed hidden once the user returned to Chinese.
+    actionRow?.isHidden = kana && !showsSymbols
+    japaneseGlobeButton?.isHidden = !needsInputModeSwitchKey
     japaneseHeight?.constant = KeyboardLayoutPreference.rowSpacing * 2
     // 面板自带底排之后,剩下的高度整块归它 —— 再把高度绑在已经隐藏的动作行上,算出来是 0。
     japaneseHeight?.isActive = false

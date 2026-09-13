@@ -104,6 +104,48 @@ final class JapaneseNineKeyTests: XCTestCase {
       }
     }
   }
+  func testModeColumnKeysShareTheHeightEvenly() throws {
+    // 切日英一天按不了几次,却拿到整列最大的靶子。The column used to give its last key two rows, so
+    // the script toggle was twice the size of every kana key next to it.
+    let makeMode = { (title: String) -> UIButton in
+      var config = UIButton.Configuration.plain(); config.title = title
+      return UIButton(configuration: config)
+    }
+    let modes = ["123", "^_^", "英", "地球"].map(makeMode)
+    let panel = JapaneseNineKeyView(makeKey: { title, _, action in
+      var config = UIButton.Configuration.plain(); config.title = title
+      return UIButton(configuration: config, primaryAction: UIAction { _ in action() })
+    }, makeDelete: {
+      var config = UIButton.Configuration.plain(); config.title = "⌫"
+      return UIButton(configuration: config)
+    }, modeKeys: modes)
+    panel.frame = CGRect(x: 0, y: 0, width: 414, height: 235)
+    panel.applyLayout(); panel.layoutIfNeeded()
+    let heights = modes.map { $0.bounds.height }
+    guard let tallest = heights.max(), let shortest = heights.min() else { return XCTFail("没有模式键") }
+    XCTAssertEqual(tallest, shortest, accuracy: 1, "模式键高度应当均分,没有哪个键该比别的大一截")
+    XCTAssertGreaterThan(shortest, 0)
+  }
+
+  func testVariantKeyIsDisabledUntilThereIsAKanaToModify() throws {
+    let panel = JapaneseNineKeyView(makeKey: { title, _, action in
+      var config = UIButton.Configuration.plain(); config.title = title
+      let button = UIButton(configuration: config, primaryAction: UIAction { _ in action() })
+      return button
+    }, makeDelete: {
+      var config = UIButton.Configuration.plain(); config.title = "⌫"
+      return UIButton(configuration: config)
+    })
+    let variants = nodes(panel).compactMap { $0 as? UIButton }
+      .first { $0.accessibilityIdentifier == "japaneseVariants" }
+    let key = try XCTUnwrap(variants, "没有找到 小゛゜ 键")
+    XCTAssertFalse(key.isEnabled, "没组字时 小゛゜ 无事可做,应当是灰的")
+    panel.setComposing(true)
+    XCTAssertTrue(key.isEnabled)
+    panel.setComposing(false)
+    XCTAssertFalse(key.isEnabled)
+  }
+
   func testExpandedCandidatesStayOnOneLineAndInsideTheirRow() throws {
     // 全屏候选面板排版乱且候选在 chip 内换行。The chip never set a line break mode, so a long
     // candidate wrapped -- and a wrapping title measures at its narrowest under a compressed fit,

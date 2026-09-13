@@ -59,19 +59,18 @@ final class JapaneseNineKeyView: UIStackView {
     spacing = 6
     accessibilityIdentifier = "japaneseNineKey"
 
-    // 左列:三个键,最后一个跨两行 —— 和 iOS 实机的かなキーボード一致(→ / ↺ / ABC)。
-    // Measured against the real thing rather than remembered: the column holds three keys, not one
-    // per row, and its bottom key is two rows tall the same way 改行 is on the right.
-    var modeColumn: UIStackView?
+    // 左列一格一行,和假名行对齐。Equal shares rather than a tall last key: switching script is a
+    // once-a-session action and does not deserve the column's biggest target, and equal shares also
+    // degrade cleanly — hide the globe where the host does not need it and the remaining keys
+    // redistribute instead of leaving a hole.
     if !modeKeys.isEmpty {
       let modes = UIStackView()
-      modes.axis = .vertical; modes.distribution = .fill; modes.spacing = 7
+      modes.axis = .vertical; modes.distribution = .fillEqually; modes.spacing = 7
       rows.append(modes)
       addArrangedSubview(modes)
       modes.widthAnchor.constraint(equalTo: widthAnchor, multiplier: 0.17).isActive = true
       modes.accessibilityIdentifier = "japaneseModeColumn"
       for key in modeKeys { modes.addArrangedSubview(key) }
-      modeColumn = modes
     }
 
     let grid = UIStackView()
@@ -121,15 +120,6 @@ final class JapaneseNineKeyView: UIStackView {
     side.addArrangedSubview(delete)
     for key in sideKeys { side.addArrangedSubview(key) }
     // 每个侧键都按"几行高"钉住,单位就是假名行本身。
-    if let firstKanaRow = grid.arrangedSubviews.first, let modes = modeColumn {
-      for (index, key) in modeKeys.enumerated() {
-        let tall: CGFloat = index == modeKeys.count - 1 ? 2 : 1
-        key.heightAnchor.constraint(
-          equalTo: firstKanaRow.heightAnchor, multiplier: tall,
-          constant: tall > 1 ? 7 : 0).isActive = true
-      }
-      _ = modes
-    }
     if let firstKanaRow = grid.arrangedSubviews.first {
       var spans: [(UIView, CGFloat)] = [(delete, 1)]
       for (index, key) in sideKeys.enumerated() {
