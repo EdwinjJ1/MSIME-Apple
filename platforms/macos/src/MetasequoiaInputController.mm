@@ -728,7 +728,7 @@ static NSHashTable *LiveDictionaryControllers()
                     if (latinOrDigit)
                     {
                         [sender insertText:charactersIgnoringModifiers
-                          replacementRange:NSMakeRange(NSNotFound, NSNotFound)];
+                            replacementRange:NSMakeRange(NSNotFound, NSNotFound)];
                         return YES;
                     }
                 }

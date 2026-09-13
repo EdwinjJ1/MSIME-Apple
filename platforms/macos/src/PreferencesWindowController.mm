@@ -1730,18 +1730,17 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
         ],
         4.0);
     feedbackCard.accessibilityLabel = @"反馈与帮助卡片";
-    NSView *updatesPage = PreferencesPage(@"更新与反馈", @"保持水杉输入法为最新版本，并告诉我们哪里还可以做得更好。", @[
-        SectionLabel(@"软件更新"), updateCard, SectionLabel(@"反馈与帮助"), feedbackCard
-    ]);
+    NSView *updatesPage =
+        PreferencesPage(@"更新与反馈", @"保持水杉输入法为最新版本，并告诉我们哪里还可以做得更好。",
+                        @[ SectionLabel(@"软件更新"), updateCard, SectionLabel(@"反馈与帮助"), feedbackCard ]);
     updatesPage.accessibilityLabel = @"更新与反馈设置页";
 
     // 账号界面直接嵌在这一页里,不再点个按钮又弹一个窗。Reaching the sign-in used to mean a panel on
     // top of a panel, for a view that is plain SwiftUI and hosts inline perfectly well.
     NSView *accountPaneView = MSIMEAccountPaneView();
     [accountPaneView.heightAnchor constraintGreaterThanOrEqualToConstant:360.0].active = YES;
-    NSView *accountPage = PreferencesPage(@"账号", @"登录水杉账号后，候选词翻译、云同步等需要账号的功能才会生效。", @[
-        accountPaneView
-    ]);
+    NSView *accountPage =
+        PreferencesPage(@"账号", @"登录水杉账号后，候选词翻译、云同步等需要账号的功能才会生效。", @[ accountPaneView ]);
     accountPage.accessibilityLabel = @"账号设置页";
 
     _preferencePages = @[
