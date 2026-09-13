@@ -196,11 +196,12 @@ final class JapaneseNineKeyView: UIStackView {
     button.accessibilityLabel = key.kana.filter { !$0.isEmpty }.joined(separator: "、")
     // 日语键面上的说明用日语。A Japanese typist reading 轻点输入 recognised none of it; these are
     // the terms their own keyboards use.
-    button.accessibilityHint = "タップで\(key.kana[0])、左・上・右・下にフリックで他の文字、長押しで一覧"
-    button.menu = UIMenu(children: key.kana.enumerated().filter { !$0.element.isEmpty }.map {
-      direction, character in
-      UIAction(title: character) { [weak self] _ in self?.select(index, direction: direction) }
-    })
+    button.accessibilityHint = "タップで\(key.kana[0])、左・上・右・下にフリックで他の文字"
+    // 不挂长按菜单。It predates the flick guide and now fights it: the guide opens on touch down and
+    // UIKit's menu covers it half a second later, for a list of exactly the five kana the cross is
+    // already showing. The label below enumerates them for VoiceOver, which is what the menu was
+    // actually earning its place for.
+    button.menu = nil
   }
 
   /// 数字层第四行第一格。These have no other home on the layout, and the slot is free because the
