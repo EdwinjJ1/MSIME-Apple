@@ -312,7 +312,10 @@
         NSString *number = [NSString stringWithFormat:@"%lu", (unsigned long)index + 1];
         NSString *word = _data[index].string;
         NSString *title = [NSString stringWithFormat:@"%@  %@", number, word];
-        NSString *translation = vertical ? MetasequoiaCandidateTranslation(_data[index]) : nil;
+        // 横排也画释义。The width maths below already reserves room for one, and the button draws it
+        // from candidateTranslation regardless of direction — the only thing stopping a horizontal
+        // panel from showing a gloss was this line refusing to read the attribute.
+        NSString *translation = MetasequoiaCandidateTranslation(_data[index]);
         CGFloat itemWidth = ceil(leftPad + [number sizeWithAttributes:measure].width + 6.0 +
                                  [word sizeWithAttributes:measure].width + 8.0);
         if (translation.length > 0)
