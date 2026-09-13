@@ -1,4 +1,5 @@
 import SwiftUI
+import CoreImage
 import UIKit
 
 @MainActor
@@ -778,20 +779,17 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     shortcutBar.translatesAutoresizingMaskIntoConstraints = false
     let brand = moreShortcut
     let icon = UIImageView()
-    if let path = Bundle(for: KeyboardViewController.self).path(forResource: "KeyboardBrand", ofType: "png") {
-      icon.image = UIImage(contentsOfFile: path)?.preparingThumbnail(of: CGSize(width: 72, height: 72))
-    }
+    icon.image = Self.brandTemplate()
+    icon.tintColor = KeyboardSkinPreference.selected.accent
     icon.accessibilityIdentifier = "keyboardBrandIcon"
     icon.contentMode = .scaleAspectFit
-    icon.layer.cornerRadius = 5
-    icon.clipsToBounds = true
     icon.translatesAutoresizingMaskIntoConstraints = false
     brand.addSubview(icon)
     shortcutBar.addArrangedSubview(brand)
     NSLayoutConstraint.activate([
       brand.widthAnchor.constraint(equalToConstant: 44),
-      icon.widthAnchor.constraint(equalToConstant: 24),
-      icon.heightAnchor.constraint(equalToConstant: 24),
+      icon.widthAnchor.constraint(equalToConstant: 28),
+      icon.heightAnchor.constraint(equalToConstant: 28),
       icon.centerXAnchor.constraint(equalTo: brand.centerXAnchor),
       icon.centerYAnchor.constraint(equalTo: brand.centerYAnchor),
     ])
@@ -2361,6 +2359,22 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   /// 候选按钮的骨架。位置固定,只建一次,内容由 updateCandidateButton 每次刷新。
+  /// 品牌图是白底黑字、没有 alpha,直接贴上去就是快捷栏左端的一块白方块。
+  ///
+  /// 反色之后拿亮度当 alpha:黑字形变成不透明,白底变透明。得到的模板图用 accent 着色,和栏里其它
+  /// 图标同一个处理方式,换皮肤时也跟着走。
+  private static func brandTemplate() -> UIImage? {
+    guard let path = Bundle(for: KeyboardViewController.self).path(forResource: "KeyboardBrand", ofType: "png"),
+      let source = UIImage(contentsOfFile: path), let cgImage = source.cgImage
+    else { return nil }
+    let input = CIImage(cgImage: cgImage)
+    guard let inverted = CIFilter(name: "CIColorInvert", parameters: [kCIInputImageKey: input])?.outputImage,
+      let masked = CIFilter(name: "CIMaskToAlpha", parameters: [kCIInputImageKey: inverted])?.outputImage,
+      let output = CIContext().createCGImage(masked, from: masked.extent)
+    else { return nil }
+    return UIImage(cgImage: output).withRenderingMode(.alwaysTemplate)
+  }
+
   private func makeCandidateButton(index: Int) -> UIButton {
     var configuration = UIButton.Configuration.plain()
     configuration.baseForegroundColor = KeyboardSkinPreference.selected.keyForeground
