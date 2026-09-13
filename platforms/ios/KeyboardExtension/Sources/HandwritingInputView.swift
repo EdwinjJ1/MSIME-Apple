@@ -179,7 +179,8 @@ final class HandwritingCanvas: UIView {
 
 final class HandwritingInputView: UIView {
   let canvas = HandwritingCanvas()
-  private let candidates = UIStackView()
+  /// 识别结果交给控制器铺到共享候选条上 —— 手写不再自己维护一条。
+  var onResults: (([String]) -> Void)?
   private let status = UILabel()
   private var recognizerStorage: HandwritingRecognizer?
   private var recognizer: HandwritingRecognizer {
@@ -237,13 +238,10 @@ final class HandwritingInputView: UIView {
   override init(frame: CGRect) {
     super.init(frame: frame)
     accessibilityIdentifier = "handwritingInput"
-    let layout = KeyboardLayoutPreference.geometry
-    // 竖向的间距和条高都不跟布局偏好走 —— 横屏总高是定死的,这里多要一点就等于从画布上割一点,
-    // 而画布本来就只剩一百来点。横向间距不吃高度,那个照常跟随。
+    // 候选交给共享的候选条,这里不再自带一条。Two candidate strips stacked on one screen is the same
+    // duplication the reply panel had, and the private one cost the canvas 36pt of the little height
+    // it has -- in a mode whose entire job is the canvas.
     let column = UIStackView(); column.axis = .vertical; column.spacing = 4
-    let scroll = UIScrollView(); scroll.showsHorizontalScrollIndicator = false
-    scroll.disableEdgeEffects()
-    candidates.axis = .horizontal; candidates.spacing = layout.keySpacing
     // 提示话写在画布里,不占候选条。The strip was doing both jobs: a status line sat where the
     // candidates belong, and showStatus("") left an empty label parked in front of the first one, so
     // the row never started where the eye expected. The canvas is where the user is looking anyway.
@@ -252,18 +250,9 @@ final class HandwritingInputView: UIView {
     status.textAlignment = .center
     status.numberOfLines = 2
     status.translatesAutoresizingMaskIntoConstraints = false
-    scroll.addSubview(candidates)
-    candidates.translatesAutoresizingMaskIntoConstraints = false
-    NSLayoutConstraint.activate([
-      candidates.leadingAnchor.constraint(equalTo: scroll.contentLayoutGuide.leadingAnchor),
-      candidates.trailingAnchor.constraint(equalTo: scroll.contentLayoutGuide.trailingAnchor),
-      candidates.topAnchor.constraint(equalTo: scroll.contentLayoutGuide.topAnchor),
-      candidates.bottomAnchor.constraint(equalTo: scroll.contentLayoutGuide.bottomAnchor),
-      candidates.heightAnchor.constraint(equalTo: scroll.frameLayoutGuide.heightAnchor),
-      scroll.heightAnchor.constraint(equalToConstant: 32),
-    ])
-    column.addArrangedSubview(scroll)
-    let row = UIStackView(); row.spacing = layout.keySpacing; row.addArrangedSubview(canvas)
+    // 画布和工具列之间的横向留白跟随布局偏好 —— 横向不吃总高,可以跟。
+    let row = UIStackView(); row.spacing = KeyboardLayoutPreference.keySpacing
+    row.addArrangedSubview(canvas)
     canvas.addSubview(status)
     NSLayoutConstraint.activate([
       status.centerXAnchor.constraint(equalTo: canvas.centerXAnchor),
@@ -314,7 +303,10 @@ final class HandwritingInputView: UIView {
     canvas.onChange = { [weak self] in self?.scheduleRecognition() }
   }
   required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
-  private func invalidate() { revision = UUID(); task?.cancel(); task = nil; results = [] }
+  private func invalidate() {
+    revision = UUID(); task?.cancel(); task = nil; results = []
+    onResults?([])
+  }
   func clear() { invalidate(); canvas.clear() }
   /// 画布中央本来就站着下载按钮,提示得让开它,否则两行字叠在一起。
   ///
@@ -334,9 +326,8 @@ final class HandwritingInputView: UIView {
     statusCentred?.isActive = !sharesTheCanvas
   }
 
-  /// 只清候选并改画布上的提示 —— 两者分开之后,识别出来的字直接从条子最左边开始。
+  /// 提示写在画布上,候选归共享候选条 —— 两个角色分开,识别出的字就从那条的最左边开始。
   private func showStatus(_ text: String) {
-    candidates.arrangedSubviews.forEach { candidates.removeArrangedSubview($0); $0.removeFromSuperview() }
     status.text = text; status.textColor = KeyboardSkinPreference.selected.keyForeground
     status.isHidden = text.isEmpty
     placeStatus()
@@ -355,23 +346,20 @@ final class HandwritingInputView: UIView {
         guard !Task.isCancelled, self.revision == current else { return }
         self.results = words
         self.showStatus(words.isEmpty ? "未识别，请撤销或重新书写" : "")
-        for (index, word) in words.enumerated() {
-          let button = KeyboardKeyButton(type: .system); button.setTitle(word, for: .normal)
-          button.titleLabel?.font = .systemFont(ofSize: 21)
-          button.widthAnchor.constraint(greaterThanOrEqualToConstant: 44).isActive = true
-          button.accessibilityIdentifier = "handwritingCandidate-\(index)"
-          button.addAction(UIAction { [weak self] _ in
-            guard let self, self.revision == current, self.results.contains(word) else { return }
-            self.clear(); self.onInsert?(word)
-          }, for: .primaryActionTriggered)
-          self.candidates.addArrangedSubview(button)
-        }
+        self.onResults?(words)
       } catch is CancellationError { } catch {
         guard let self, self.revision == current else { return }
         self.showStatus("识别失败，请重写后重试")
       }
     }
   }
+  /// 共享候选条上点第 index 个 —— 位置对不上就当过期,不上屏。
+  @discardableResult func use(at index: Int) -> Bool {
+    guard results.indices.contains(index) else { return false }
+    let word = results[index]
+    clear(); onInsert?(word); return true
+  }
+
   @discardableResult func commitFirst() -> Bool {
     guard let word = results.first else { return false }; clear(); onInsert?(word); return true
   }

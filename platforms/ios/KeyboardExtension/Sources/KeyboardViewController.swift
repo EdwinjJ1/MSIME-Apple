@@ -111,6 +111,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var replyPanelSuppressed = false
   /// 候选行与快捷栏所在的容器 —— 高情商回复的面板要挂在它下面,而不是盖住它。
   private weak var compositionContainer: UIView?
+  /// 共享候选条上正显示的手写结果 —— chip 是按下标绑引擎的,手写得从这里取字。
+  private var handwritingResults: [String] = []
   private var reportedStatisticsFailure = false
   private var visiblePreedit = ""
   /// 日语変換进行到第几个候选。nil 表示还没按过空格 —— 这时回车是無変換確定,交出假名本身。
@@ -390,6 +392,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       render(session.finishComposition())
       insertOwnText(ChineseTextConversion.outputString(text, traditional: usesTraditionalOutput), source: .handwriting)
       playInputClick()
+    }
+    // 手写的候选走共享的那条,和别的方案同一个位置、同一个样子。
+    handwriting.onResults = { [weak self] words in
+      guard let self, inputScheme == .handwriting, isChineseMode else { return }
+      handwritingResults = words
+      updateCandidateStrip(preedit: "", candidates: words)
     }
     handwriting.canDownload = { [weak self] in self?.hasFullAccess == true }
     handwriting.onDelete = { [weak self] in self?.handleBackspace() }
@@ -2368,6 +2376,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       primaryAction: UIAction { [weak self] _ in
         guard let self else { return }
         self.playInputClick()
+        // 手写的候选不是引擎给的,不能按下标回给引擎选。
+        if self.inputScheme == .handwriting, !self.handwritingResults.isEmpty {
+          if self.handwriting.use(at: index) { self.handwritingResults = [] }
+          return
+        }
         self.render(self.session.selectCandidate(at: UInt(index)))
       })
     button.accessibilityIdentifier = "candidate-\(index + 1)"
@@ -2548,9 +2561,16 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     // The composition line added a row to the candidate strip; the keyboard grew by it rather than
     // taking the space out of the keys.
     let extra = Self.compositionRowHeight
-    let base: CGFloat = handwriting.isHidden
+    // 竖屏手写和别的方案同高。It used to claim 100pt more, which reflowed whatever the user was typing
+    // into every time they switched to it. Handing the candidates to the shared strip gave the canvas
+    // back the 36pt its private one was holding, so the common height now carries a canvas about as
+    // tall as the old 300pt compromise did.
+    //
+    // 横屏留一点。There the keyboard is short to begin with and the same trade leaves too little to
+    // write a character in.
+    let base: CGFloat = handwriting.isHidden || !landscape
       ? (landscape ? 216 + extra : 260 + extra)
-      : (landscape ? 260 + extra : 360 + extra)
+      : 240 + extra
     // The rows divide whatever height the keyboard claims, so this reaches the key faces too --
     // which is the point, since a key too small to hit is what this setting answers.
     let height = base + CGFloat(KeyboardLayoutPreference.heightAdjustment)
