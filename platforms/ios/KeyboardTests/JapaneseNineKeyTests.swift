@@ -83,14 +83,19 @@ final class JapaneseNineKeyTests: XCTestCase {
     for layout in KeyboardLayoutPreset.allCases {
       KeyboardLayoutPreference.selected = layout
       for width in [320.0, 414.0] {
-        let panel = JapaneseNineKeyView { title, _, action in
+        let panel = JapaneseNineKeyView(makeKey: { title, _, action in
           var config = UIButton.Configuration.plain(); config.title = title
           return UIButton(configuration: config, primaryAction: UIAction { _ in action() })
-        }
-        panel.frame = CGRect(x: 0, y: 0, width: width, height: 176)
+        }, makeDelete: {
+          var config = UIButton.Configuration.plain(); config.title = "⌫"
+          return UIButton(configuration: config)
+        })
+        // 四行网格加右侧删除键。The grid used to be three rows with わ and 小゛゜ stacked in the side
+        // column; the fourth row is where every Japanese keyboard puts 小゛゜, わ and 、。
+        panel.frame = CGRect(x: 0, y: 0, width: width, height: 235)
         panel.applyLayout(); panel.layoutIfNeeded()
         let buttons = nodes(panel).compactMap { $0 as? UIButton }
-        XCTAssertEqual(buttons.count, 12)
+        XCTAssertEqual(buttons.count, 13)
         for button in buttons {
           XCTAssertGreaterThan(button.bounds.height, 45)
           XCTAssertGreaterThan(button.bounds.width, 44)
