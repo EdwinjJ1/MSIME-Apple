@@ -3,6 +3,7 @@
 // Implemented in CandidateTranslationBridge.swift.
 extern "C" void MSIMETranslateCandidates(const char *wordsJSON, const char *languageName,
                                          unsigned long long generation);
+extern "C" void MSIMEEnsureAnonymousAccount(void);
 
 #import "DictionaryInstaller.h"
 #include "DictionaryRuntime.h"
@@ -464,6 +465,9 @@ static NSHashTable *LiveDictionaryControllers()
 - (void)activateServer:(id)sender
 {
     [super activateServer:sender];
+    // 装完即有账号,不必先去找登录入口。Candidate translation and cloud sync both need one, and every
+    // other provider asks for something the user already holds; a fresh install has none of it.
+    MSIMEEnsureAnonymousAccount();
     _serverActive = YES;
     _dictionaryRetryAfter = 0.0;
     [NSUserDefaults.standardUserDefaults synchronize];

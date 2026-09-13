@@ -153,6 +153,16 @@ struct MacAccountView: View {
       Form {
       if let user = model.user {
         Text(user.preferredDisplayName).font(.title2)
+        // 匿名账号是装完自动开的,用户没做过任何操作,所以「它从哪来、丢了会怎样」必须写在他会看到的
+        // 地方。提示放在这一页而不是打字时弹出来:内容是一次性的,但看的时机该由用户决定。
+        if let anonymous = BackendAnonymousAccount.stored() {
+          Text("本机账号 \(anonymous.subject)")
+            .font(.callout)
+          Text("安装时自动创建,用于候选词翻译与云同步。凭据只保存在本机钥匙串,清除钥匙串或更换设备后无法找回这个账号及其云端词库 —— 想长期保留请绑定 Apple 或邮箱。")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+        }
         TextField("昵称", text: $model.name)
         Button("保存昵称") { model.rename() }
         Button("云剪贴板…") { clipboard = true }
