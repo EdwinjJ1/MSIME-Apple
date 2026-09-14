@@ -50,21 +50,26 @@ final class HandwritingTests: XCTestCase {
     let panel = HandwritingInputView(frame: CGRect(x: 0, y: 0, width: 414, height: 160))
     panel.layoutIfNeeded()
     var inserted = ""
+    var published: [String] = []
     panel.onInsert = { inserted += $0 }
+    panel.onResults = { published = $0 }
     panel.canvas.setTestStrokes(chineseInk.prefix(4).map { $0.map { CGPoint(x: $0.x * 0.6 + 5, y: $0.y * 0.6 + 5) } })
     for _ in 0..<100 {
       if !panel.results.isEmpty { break }
       try await Task.sleep(nanoseconds: 50_000_000)
     }
     XCTAssertTrue(panel.results.contains("中"))
+    // 候选交给共享候选条,面板自己不再画按钮 —— 所以确认走 use(at:),不是找面板里的 UIButton。
+    XCTAssertEqual(published, panel.results, "Recognised candidates never reached the shared strip.")
     XCTAssertEqual(inserted, "")
-    let candidate = try XCTUnwrap(nodes(panel).first { ($0 as? UIButton)?.title(for: .normal) == "中" } as? UIButton)
-    candidate.sendActions(for: .primaryActionTriggered)
+    let index = try XCTUnwrap(panel.results.firstIndex(of: "中"))
+    XCTAssertTrue(panel.use(at: index))
     XCTAssertEqual(inserted, "中")
     XCTAssertFalse(panel.hasInk)
     XCTAssertTrue(panel.results.isEmpty)
-    candidate.sendActions(for: .primaryActionTriggered)
-    XCTAssertEqual(inserted, "中", "A stale candidate must not insert again")
+    XCTAssertEqual(published, [], "Confirming a candidate did not clear the shared strip.")
+    XCTAssertFalse(panel.use(at: index), "A stale candidate must not insert again")
+    XCTAssertEqual(inserted, "中")
   }
 
   func testClearInvalidatesPendingRecognitionAndUndoRemovesOneStroke() async throws {
