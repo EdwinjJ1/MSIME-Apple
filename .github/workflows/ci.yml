@@ -110,9 +110,9 @@ jobs:
           codesign --verify --deep --strict --verbose=2 build/MetasequoiaIME.app
           lipo build/MetasequoiaIME.app/Contents/MacOS/MetasequoiaIME -verify_arch arm64 x86_64
           plutil -lint build/MetasequoiaIME.app/Contents/Info.plist
-          test "$(/usr/libexec/PlistBuddy -c 'Print :TISInputSourceID' build/MetasequoiaIME.app/Contents/Info.plist)" = "com.houko.inputmethod.MetasequoiaIME"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :TISInputSourceID' build/MetasequoiaIME.app/Contents/Info.plist)" = "app.msime.inputmethod.MetasequoiaIME"
           test "$(/usr/libexec/PlistBuddy -c 'Print :TISIntendedLanguage' build/MetasequoiaIME.app/Contents/Info.plist)" = "zh-Hans"
-          test "$(/usr/libexec/PlistBuddy -c 'Print :ComponentInputModeDict:tsInputModeListKey:com.houko.inputmethod.MetasequoiaIME.Hans:tsInputModeScriptKey' build/MetasequoiaIME.app/Contents/Info.plist)" = "smSimpChinese"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :ComponentInputModeDict:tsInputModeListKey:app.msime.inputmethod.MetasequoiaIME.Hans:tsInputModeScriptKey' build/MetasequoiaIME.app/Contents/Info.plist)" = "smSimpChinese"
 
   # MSIME-Linux's ci.yml already reasons this out: "the frontend layer had none -- and that is the
   # layer that parses untrusted input", written after an audit of a sibling frontend turned up a
